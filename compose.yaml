@@ -1,0 +1,62 @@
+name: agent-browser
+
+services:
+  desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: local/agent-browser:playwright-mcp-0.0.79
+    container_name: agent-browser
+    init: true
+    restart: unless-stopped
+    user: "${AGENT_BROWSER_UID:-1000}:${AGENT_BROWSER_GID:-1000}"
+    environment:
+      DISPLAY: ":99"
+      HOME: "/home/node"
+      XDG_CONFIG_HOME: "/home/node/.config"
+      XDG_CACHE_HOME: "/home/node/.cache"
+      XDG_DATA_HOME: "/home/node/.local/share"
+      PLAYWRIGHT_MCP_SANDBOX: "true"
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      NODE_ENV: "production"
+    ports:
+      - "127.0.0.1:5900:5900"
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - type: bind
+        source: "${AGENT_BROWSER_DATA_DIR}/profile"
+        target: /data/profile
+      - type: bind
+        source: "${AGENT_BROWSER_DATA_DIR}/artifacts"
+        target: /data/artifacts
+      - type: bind
+        source: "${AGENT_BROWSER_DATA_DIR}/logs"
+        target: /data/logs
+      - type: bind
+        source: "${AGENT_BROWSER_DATA_DIR}/secrets/vnc-password"
+        target: /run/secrets/vnc_password
+        read_only: true
+    shm_size: "2gb"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777
+      - /run:rw,nosuid,nodev,noexec,size=32m,mode=0755
+      - /home/node:rw,nosuid,nodev,noexec,size=512m,mode=0700,uid=${AGENT_BROWSER_UID:-1000},gid=${AGENT_BROWSER_GID:-1000}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - "seccomp=${AGENT_BROWSER_CONFIG_DIR}/seccomp_profile.json"
+    pids_limit: 1024
+    healthcheck:
+      test: ["CMD-SHELL", "DISPLAY=:99 xdpyinfo >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    networks:
+      - browser-egress
+
+networks:
+  browser-egress:
+    driver: bridge

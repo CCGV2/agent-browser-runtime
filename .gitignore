@@ -1,0 +1,22 @@
+# Local deployment state and secrets
+.env
+seccomp_profile.json
+profile/
+artifacts/
+logs/
+secrets/
+
+# Package/build output
+node_modules/
+npm-debug.log*
+
+# Local audit notes and retained backups
+/OPERATIONS.md
+/MCP-USAGE.md
+/DEPLOY-NOTES.md
+*.bak-*
+*.~*
+
+# Editor/OS files
+.DS_Store
+*.swp

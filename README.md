@@ -1,0 +1,114 @@
+# agent-browser-runtime
+
+A hardened, self-hosted desktop runtime for Microsoft Playwright MCP. It runs a headed Chromium browser in Docker with a persistent profile, exposes human takeover through loopback-only VNC/noVNC, and keeps MCP on STDIO.
+
+## Security properties
+
+- Chromium sandbox enabled; no `--no-sandbox`
+- non-root container process with all Linux capabilities dropped
+- `no-new-privileges` and a reviewed Playwright seccomp profile
+- read-only root filesystem and restricted `noexec` tmpfs mounts
+- dedicated persistent browser profile; no host home or Docker socket mount
+- MCP over STDIO only; no port 8931 or CDP port 9222
+- VNC and noVNC published on host loopback only
+- single-process lock for the persistent Chromium profile
+- example client policy excluding `browser_evaluate` and `browser_run_code_unsafe`
+
+This repository hardens the runtime, but Playwright MCP is not itself a security boundary. The MCP client must enforce an explicit tool allowlist and treat web content as untrusted input.
+
+## Pinned runtime
+
+- `@playwright/mcp`: `0.0.79`
+- bundled Playwright Core: `1.63.0-alpha-2026-08-05`
+- Chromium revision: `1237`
+- tested Chrome for Testing: `152.0.7977.8`
+- Node base image: `22.22.2-bookworm-slim`
+
+## Requirements
+
+- Linux host with Docker Engine and Docker Compose v2
+- current user allowed to use Docker
+- Bash, curl, OpenSSL, Python 3, and sha256sum
+- unprivileged user namespaces available to Chromium
+
+## Install
+
+Run as the intended non-root service owner:
+
+```bash
+git clone <repository-url> agent-browser-runtime
+cd agent-browser-runtime
+./install.sh
+```
+
+Defaults follow the current user's XDG directories:
+
+```text
+configuration: ${XDG_CONFIG_HOME:-$HOME/.config}/agent-browser
+data:          ${XDG_DATA_HOME:-$HOME/.local/share}/agent-browser
+```
+
+Override them when required:
+
+```bash
+AGENT_BROWSER_CONFIG_DIR=/srv/example/config \
+AGENT_BROWSER_DATA_DIR=/srv/example/data \
+./install.sh
+```
+
+The installer generates a VNC password if one does not already exist. It never prints the password and does not modify Agent configuration.
+
+## Connect an MCP client
+
+Use the absolute path printed by the installer as a local STDIO MCP command. For Codex, copy `codex-config-snippet.toml`, replace `YOUR_USER`, and merge it into the existing configuration instead of overwriting the file.
+
+The recommended browser policy is in `browser-policy.md`. At minimum, keep these tools unavailable to the Agent:
+
+```text
+browser_evaluate
+browser_run_code_unsafe
+```
+
+Only one MCP client may use the persistent profile at a time.
+
+## Human takeover
+
+Create an SSH tunnel from the operator's computer:
+
+```bash
+ssh -N -L 6080:127.0.0.1:6080 USER@SERVER
+```
+
+Then open `http://127.0.0.1:6080/vnc.html`. Retrieve the VNC password directly on the server from the protected data directory; never put it in source control, logs, or an Agent conversation.
+
+## Verify
+
+Static source checks:
+
+```bash
+./verify-source.sh
+```
+
+Deployed runtime checks:
+
+```bash
+"${XDG_CONFIG_HOME:-$HOME/.config}/agent-browser/verify-runtime.sh"
+```
+
+Functional validation should also initialize MCP, list tools, open `https://example.com`, capture an accessibility snapshot and screenshot, verify the real noVNC WebSocket/RFB path, and confirm cleanup leaves no Chromium process or active profile lock.
+
+## Known limitations
+
+- The Node base image is pinned by tag but not yet by digest. Record and pin a reviewed digest for high-assurance production builds.
+- The seccomp profile is based on Playwright `v1.62.0` and is checksum-pinned, then minimally patched to allow `chroot` inside Chromium's unprivileged user namespace. Re-audit it when upgrading Playwright or Chromium.
+- VNC/noVNC is intentionally plain HTTP inside a loopback-only SSH tunnel. Do not expose ports 5900 or 6080 publicly.
+- Browser profile data is sensitive. Back it up and protect it like credentials.
+- Credential-manager integration and an authenticated product-facing VNC WebSocket gateway are future features, not part of this release.
+
+## License
+
+Apache License 2.0. This repository publishes source and build instructions; no public prebuilt container image is provided.
+
+## Release status
+
+`0.1.0` is the first source release candidate. It captures the deployed Chromium/Crashpad and sandbox fixes and has been validated on Ubuntu Server.

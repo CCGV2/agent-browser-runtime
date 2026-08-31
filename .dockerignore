@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+*.bak-*
+*.~*
+OPERATIONS.md
+MCP-USAGE.md
+DEPLOY-NOTES.md
+profile
+artifacts
+logs
+secrets
