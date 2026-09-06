@@ -3,11 +3,16 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-bash -n "$ROOT/install.sh" "$ROOT/verify-runtime.sh" "$ROOT/verify-source.sh"
+bash -n \
+  "$ROOT/install.sh" \
+  "$ROOT/install-macos-native.sh" \
+  "$ROOT/verify-runtime.sh" \
+  "$ROOT/verify-source.sh"
 sh -n \
   "$ROOT/desktop-entrypoint.sh" \
   "$ROOT/mcp-stdio.sh" \
-  "$ROOT/playwright-mcp-wrapper.sh"
+  "$ROOT/playwright-mcp-wrapper.sh" \
+  "$ROOT/playwright-mcp-native-wrapper.sh"
 
 test_uid="$(id -u)"
 test_gid="$(id -g)"
@@ -30,7 +35,9 @@ docker compose --project-directory "$ROOT" -f "$ROOT/compose.yaml" config >/dev/
 
 if grep -R -n -E -- \
   '--no-sandbox|privileged:[[:space:]]*true|SYS_ADMIN|/var/run/docker.sock|0\.0\.0\.0:5900:5900|0\.0\.0\.0:6080:6080' \
-  "$ROOT/Dockerfile" "$ROOT/compose.yaml" "$ROOT/install.sh" "$ROOT/desktop-entrypoint.sh" "$ROOT/mcp-stdio.sh" "$ROOT/playwright-mcp-wrapper.sh" "$ROOT/verify-runtime.sh"; then
+  "$ROOT/Dockerfile" "$ROOT/compose.yaml" "$ROOT/install.sh" "$ROOT/install-macos-native.sh" \
+  "$ROOT/desktop-entrypoint.sh" "$ROOT/mcp-stdio.sh" "$ROOT/playwright-mcp-wrapper.sh" \
+  "$ROOT/playwright-mcp-native-wrapper.sh" "$ROOT/verify-runtime.sh"; then
   echo "Unsafe runtime configuration detected" >&2
   exit 1
 fi

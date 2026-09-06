@@ -4,6 +4,7 @@
 
 - Support installation on macOS with Docker Desktop by accepting the system `shasum` utility, validating the Docker daemon, and documenting local noVNC and file-sharing behavior.
 - Print and document the VNC password file location without exposing the password.
+- Add a native macOS installation mode that connects Playwright MCP to user-approved tabs in the real Chrome profile through the official Playwright Extension.
 
 ## 0.1.0 - 2026-08-31
 

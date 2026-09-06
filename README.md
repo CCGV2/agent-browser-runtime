@@ -43,6 +43,28 @@ Chromium still runs inside the hardened Linux container. Docker Desktop publishe
 
 The default profile and artifact directories live below `~/.local/share/agent-browser`, which Docker Desktop normally shares because it is below the macOS home directory. If Docker Desktop reports a bind-mount sharing error, add the selected `AGENT_BROWSER_DATA_DIR` under **Settings → Resources → File sharing**.
 
+### macOS native Chrome extension mode
+
+This mode requires Node.js 22 or newer, npm, Google Chrome, and no Docker. To connect to tabs in the user's regular Chrome profile, install the official [Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm), then run:
+
+```bash
+./install-macos-native.sh
+```
+
+Merge `codex-native-config-snippet.toml` into Codex configuration, replace `YOUR_USER`, and restart Codex. On the first browser action, Chrome asks the user to approve the connection and select a tab. This mode reuses that tab's cookies and authenticated session; it does not expose every tab without user selection.
+
+By default, the native installation uses:
+
+```text
+configuration: $HOME/.config/agent-browser-native
+artifacts:     $HOME/.local/share/agent-browser-native/artifacts
+token file:    $HOME/.local/share/agent-browser-native/secrets/extension-token
+```
+
+Interactive approval is the default and recommended behavior. To allow automatic reconnection, copy the `PLAYWRIGHT_MCP_EXTENSION_TOKEN` shown by the extension into the token file and set its permissions to `0600`. Never commit, log, or send that token to an agent.
+
+Native extension mode has a wider trust boundary than the Docker runtime: the selected tab uses the user's real browser state. Keep the same Codex tool allowlist, treat page content as untrusted, and require explicit user approval before consequential actions.
+
 ## Install
 
 Run as the intended non-root service owner:
