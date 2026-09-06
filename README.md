@@ -96,6 +96,8 @@ The installer generates a VNC password if one does not already exist. It never p
 
 Use the absolute path printed by the installer as a local STDIO MCP command. For Codex, copy `codex-config-snippet.toml`, replace `YOUR_USER`, and merge it into the existing configuration instead of overwriting the file.
 
+For Claude Code and Claude Desktop, follow [docs/CLAUDE.md](docs/CLAUDE.md). It includes native Chrome and Docker setup, macOS configuration paths, verification, and a restrictive tool policy.
+
 The recommended browser policy is in `browser-policy.md`. At minimum, keep these tools unavailable to the Agent:
 
 ```text
