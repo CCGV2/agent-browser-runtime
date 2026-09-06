@@ -23,8 +23,8 @@ for command_name in node npm; do
   fi
 done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
-if (( node_major < 22 )); then
-  echo "Node.js 22 or newer is required" >&2
+if (( node_major < 18 )); then
+  echo "Node.js 18 or newer is required" >&2
   exit 1
 fi
 

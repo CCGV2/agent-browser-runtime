@@ -45,7 +45,7 @@ The default profile and artifact directories live below `~/.local/share/agent-br
 
 ### macOS native Chrome extension mode
 
-This mode requires Node.js 22 or newer, npm, Google Chrome, and no Docker. To connect to tabs in the user's regular Chrome profile, install the official [Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm), then run:
+This mode requires Node.js 18 or newer, npm, Google Chrome, and no Docker. To connect to tabs in the user's regular Chrome profile, install the official [Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm), then run:
 
 ```bash
 ./install-macos-native.sh
