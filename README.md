@@ -95,6 +95,15 @@ Then open `http://127.0.0.1:6080/vnc.html`. Retrieve the VNC password directly o
 
 For a runtime installed locally on macOS, open the same URL without the SSH tunnel.
 
+The installer prints the password file path but never its contents. At the default locations, the password file is:
+
+```text
+Linux:  ${XDG_DATA_HOME:-$HOME/.local/share}/agent-browser/secrets/vnc-password
+macOS:  $HOME/.local/share/agent-browser/secrets/vnc-password
+```
+
+If `AGENT_BROWSER_DATA_DIR` was set during installation, use `$AGENT_BROWSER_DATA_DIR/secrets/vnc-password` instead. An operator may read this protected file for manual takeover; agents should not read or disclose its contents.
+
 ## Verify
 
 Static source checks:

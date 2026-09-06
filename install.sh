@@ -114,4 +114,5 @@ docker compose --project-directory "$CONFIG_DIR" -f "$CONFIG_DIR/compose.yaml" b
 docker compose --project-directory "$CONFIG_DIR" -f "$CONFIG_DIR/compose.yaml" up -d
 
 printf 'Desktop stack started. MCP command: %s/mcp-stdio.sh\n' "$CONFIG_DIR"
+printf 'VNC password file: %s/secrets/vnc-password\n' "$DATA_DIR"
 echo "Merge the client configuration separately after backing up the existing configuration."

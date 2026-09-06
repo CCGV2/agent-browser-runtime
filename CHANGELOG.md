@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support installation on macOS with Docker Desktop by accepting the system `shasum` utility, validating the Docker daemon, and documenting local noVNC and file-sharing behavior.
+- Print and document the VNC password file location without exposing the password.
 
 ## 0.1.0 - 2026-08-31
 
