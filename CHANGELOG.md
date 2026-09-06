@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Support installation on macOS with Docker Desktop by accepting the system `shasum` utility, validating the Docker daemon, and documenting local noVNC and file-sharing behavior.
+
 ## 0.1.0 - 2026-08-31
 
 - Add a headed Chromium desktop with Xvfb, Openbox, x11vnc, and noVNC.

@@ -7,6 +7,7 @@ CONFIG_DIR="${AGENT_BROWSER_CONFIG_DIR:-$CONFIG_HOME/agent-browser}"
 DATA_DIR="${AGENT_BROWSER_DATA_DIR:-$DATA_HOME/agent-browser}"
 
 docker compose --project-directory "$CONFIG_DIR" -f "$CONFIG_DIR/compose.yaml" ps
+test "$(docker info --format '{{.OSType}}')" = linux
 docker compose --project-directory "$CONFIG_DIR" -f "$CONFIG_DIR/compose.yaml" \
   exec -T desktop node /opt/agent-browser/node_modules/@playwright/mcp/cli.js --version
 docker compose --project-directory "$CONFIG_DIR" -f "$CONFIG_DIR/compose.yaml" \

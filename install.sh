@@ -14,12 +14,35 @@ if [[ "$(id -u)" == "0" ]]; then
   exit 1
 fi
 
-command -v docker >/dev/null
-command -v curl >/dev/null
-command -v openssl >/dev/null
-command -v python3 >/dev/null
-command -v sha256sum >/dev/null
-docker compose version >/dev/null
+for command_name in docker curl openssl python3; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Required command not found: $command_name" >&2
+    exit 1
+  fi
+done
+if ! docker compose version >/dev/null 2>&1; then
+  echo "Docker Compose v2 is required" >&2
+  exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is not running or is not accessible by the current user" >&2
+  exit 1
+fi
+if [[ "$(docker info --format '{{.OSType}}')" != "linux" ]]; then
+  echo "The Docker daemon must run Linux containers" >&2
+  exit 1
+fi
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "A SHA-256 utility (sha256sum or shasum) is required" >&2
+    return 1
+  fi
+}
 
 install -d -m 0700 "$CONFIG_DIR"
 install -d -m 0700 \
@@ -40,8 +63,7 @@ trap 'rm -f -- "$tmp_seccomp"' EXIT
 curl --fail --silent --show-error --location \
   --proto '=https' --tlsv1.2 \
   --output "$tmp_seccomp" "$SECCOMP_URL"
-actual_seccomp_sha256="$(sha256sum "$tmp_seccomp")"
-actual_seccomp_sha256="${actual_seccomp_sha256%% *}"
+actual_seccomp_sha256="$(sha256_file "$tmp_seccomp")"
 if [[ "$actual_seccomp_sha256" != "$SECCOMP_SHA256" ]]; then
   echo "Downloaded Playwright seccomp profile failed SHA-256 verification" >&2
   exit 1

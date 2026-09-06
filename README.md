@@ -26,10 +26,22 @@ This repository hardens the runtime, but Playwright MCP is not itself a security
 
 ## Requirements
 
-- Linux host with Docker Engine and Docker Compose v2
+- Linux with Docker Engine, or macOS with Docker Desktop using Linux containers
 - current user allowed to use Docker
-- Bash, curl, OpenSSL, Python 3, and sha256sum
-- unprivileged user namespaces available to Chromium
+- Bash, curl, OpenSSL, Python 3, and either `sha256sum` or `shasum`
+- on Linux, unprivileged user namespaces available to Chromium
+
+### macOS
+
+Install and start Docker Desktop, leave it in the default Linux-container mode, then run the same installer from Terminal:
+
+```bash
+./install.sh
+```
+
+Chromium still runs inside the hardened Linux container. Docker Desktop publishes noVNC only on macOS loopback, so a local operator can open `http://127.0.0.1:6080/vnc.html` directly; no SSH tunnel is needed.
+
+The default profile and artifact directories live below `~/.local/share/agent-browser`, which Docker Desktop normally shares because it is below the macOS home directory. If Docker Desktop reports a bind-mount sharing error, add the selected `AGENT_BROWSER_DATA_DIR` under **Settings → Resources → File sharing**.
 
 ## Install
 
@@ -73,13 +85,15 @@ Only one MCP client may use the persistent profile at a time.
 
 ## Human takeover
 
-Create an SSH tunnel from the operator's computer:
+For a remote Linux host, create an SSH tunnel from the operator's computer:
 
 ```bash
 ssh -N -L 6080:127.0.0.1:6080 USER@SERVER
 ```
 
 Then open `http://127.0.0.1:6080/vnc.html`. Retrieve the VNC password directly on the server from the protected data directory; never put it in source control, logs, or an Agent conversation.
+
+For a runtime installed locally on macOS, open the same URL without the SSH tunnel.
 
 ## Verify
 
@@ -111,4 +125,4 @@ Apache License 2.0. This repository publishes source and build instructions; no 
 
 ## Release status
 
-`0.1.0` is the first source release candidate. It captures the deployed Chromium/Crashpad and sandbox fixes and has been validated on Ubuntu Server.
+`0.1.0` is the first source release candidate. It captures the deployed Chromium/Crashpad and sandbox fixes and has been validated on Ubuntu Server. macOS support uses Docker Desktop's Linux VM and the same source and runtime verification scripts.
