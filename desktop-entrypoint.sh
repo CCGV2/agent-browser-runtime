@@ -11,7 +11,7 @@ fi
 
 cleanup() {
   trap - TERM INT EXIT
-  for pid in "${NOVNC_PID:-}" "${VNC_PID:-}" "${WM_PID:-}" "${XVFB_PID:-}"; do
+  for pid in "${BROKER_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${WM_PID:-}" "${XVFB_PID:-}"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -50,7 +50,10 @@ websockify --web /usr/share/novnc 0.0.0.0:6080 127.0.0.1:5900 \
   >>/data/logs/novnc.log 2>&1 &
 NOVNC_PID=$!
 
-while kill -0 "$XVFB_PID" "$WM_PID" "$VNC_PID" "$NOVNC_PID" 2>/dev/null; do
+node /opt/agent-browser/browser-broker.cjs >>/data/logs/browser-broker.log 2>&1 &
+BROKER_PID=$!
+
+while kill -0 "$XVFB_PID" "$WM_PID" "$VNC_PID" "$NOVNC_PID" "$BROKER_PID" 2>/dev/null; do
   sleep 2
 done
 

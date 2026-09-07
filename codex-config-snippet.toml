@@ -1,7 +1,7 @@
 [mcp_servers.playwright]
 command = "/home/YOUR_USER/.config/agent-browser/mcp-stdio.sh"
 enabled = true
-required = true
+required = false
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 enabled_tools = [

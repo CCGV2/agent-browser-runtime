@@ -1,6 +1,6 @@
 # agent-browser-runtime
 
-A hardened, self-hosted desktop runtime for Microsoft Playwright MCP. It runs a headed Chromium browser in Docker with a persistent profile, exposes human takeover through loopback-only VNC/noVNC, and keeps MCP on STDIO.
+A hardened, self-hosted desktop runtime for Microsoft Playwright MCP. It runs session-isolated headed Chromium workers in Docker, exposes human takeover through loopback-only VNC/noVNC, and keeps client MCP on STDIO.
 
 ## Security properties
 
@@ -8,10 +8,10 @@ A hardened, self-hosted desktop runtime for Microsoft Playwright MCP. It runs a 
 - non-root container process with all Linux capabilities dropped
 - `no-new-privileges` and a reviewed Playwright seccomp profile
 - read-only root filesystem and restricted `noexec` tmpfs mounts
-- dedicated persistent browser profile; no host home or Docker socket mount
+- isolated browser context per session; no host home or Docker socket mount
 - MCP over STDIO only; no port 8931 or CDP port 9222
 - VNC and noVNC published on host loopback only
-- single-process lock for the persistent Chromium profile
+- private container-local Unix socket broker; no shared profile lock contention
 - example client policy excluding `browser_evaluate` and `browser_run_code_unsafe`
 
 This repository hardens the runtime, but Playwright MCP is not itself a security boundary. The MCP client must enforce an explicit tool allowlist and treat web content as untrusted input.
@@ -105,7 +105,38 @@ browser_evaluate
 browser_run_code_unsafe
 ```
 
-Only one MCP client may use the persistent profile at a time.
+Multiple clients can connect concurrently. Each gets a separate isolated
+Playwright MCP worker (and browser process). The persistent profile directory
+from older installations is left intact but is no longer used by this mode.
+Existing logins are not imported. Native Chrome extension mode is unchanged.
+
+Optionally set `AGENT_BROWSER_SESSION_KEY` in the MCP process environment to
+reuse a logical browser session. Without it, each connection gets a random key.
+The key is an opaque identifier for trusted local clients, not authentication.
+Do not set the same fixed key globally for unrelated Codex sessions.
+
+Only one active connection is allowed per key; a duplicate gets a clear attach
+error. After an idle disconnect, the worker and selected tab are retained for
+five minutes. Reconnecting with the same key retains cookies and pages. If a
+request was in flight, disconnect retires the worker instead: potentially
+completed clicks are never replayed. Broker restart loses in-memory sessions.
+`browser_close` affects only that session; later browser use starts fresh.
+Artifacts are placed in a SHA-256-keyed subdirectory and are not auto-deleted.
+
+The broker reads `AGENT_BROWSER_GRACE_MS` (default 300000) for retention and
+`AGENT_BROWSER_SOCKET` (default `/tmp/agent-browser.sock`) for its internal
+socket. These are container settings, not public HTTP endpoints.
+
+For Pax, use the optional local `~/.paxd/mcp.json` launch template documented in
+the paxd repository (`docs/local_session_mcp.md`), substituting
+`${PAX_SESSION_KEY}` into `AGENT_BROWSER_SESSION_KEY`. E2EE identity is injected
+on the node after decryption. No browser-specific manager logic is required.
+
+Run `npm test` for broker and pool tests. To include real browser isolation
+tests, set `AGENT_BROWSER_REAL_MCP_CLI` to an installed `@playwright/mcp/cli.js`
+and optionally `AGENT_BROWSER_EXECUTABLE_PATH` to an installed Chromium binary.
+The test creates separate contexts, verifies cookie/page isolation, reconnects,
+and verifies closing one session leaves the other usable.
 
 ## Human takeover
 
@@ -142,7 +173,7 @@ Deployed runtime checks:
 "${XDG_CONFIG_HOME:-$HOME/.config}/agent-browser/verify-runtime.sh"
 ```
 
-Functional validation should also initialize MCP, list tools, open `https://example.com`, capture an accessibility snapshot and screenshot, verify the real noVNC WebSocket/RFB path, and confirm cleanup leaves no Chromium process or active profile lock.
+Functional validation should also initialize MCP, list tools, capture an accessibility snapshot and screenshot, verify the real noVNC WebSocket/RFB path, and confirm expired workers leave no Chromium processes.
 
 ## Known limitations
 

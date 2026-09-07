@@ -21,6 +21,7 @@ RUN apt-get update \
 
 WORKDIR /opt/agent-browser
 COPY package.json package-lock.json ./
+COPY browser-broker.cjs browser-client.cjs session-pool.cjs ./
 RUN npm ci --omit=dev \
     && npx playwright-core install --with-deps chromium \
     && npm cache clean --force \
