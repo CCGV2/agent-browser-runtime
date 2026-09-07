@@ -20,4 +20,4 @@ test -d "$DATA_DIR/logs"
 test -s "$DATA_DIR/secrets/vnc-password"
 curl --fail --silent --show-error http://127.0.0.1:6080/vnc.html >/dev/null
 
-echo "Runtime preflight passed. Complete MCP tool-list, browser interaction, restart persistence, manual takeover, and final process/lock tests from a fresh Codex session."
+echo "Runtime preflight passed. Complete concurrent MCP isolation, reconnect, manual takeover, and worker cleanup tests from fresh sessions."

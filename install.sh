@@ -51,7 +51,7 @@ install -d -m 0700 \
   "$DATA_DIR/logs" \
   "$DATA_DIR/secrets"
 
-for file in Dockerfile package.json package-lock.json compose.yaml; do
+for file in Dockerfile package.json package-lock.json compose.yaml browser-broker.cjs browser-client.cjs session-pool.cjs; do
   install -m 0600 "$SOURCE_DIR/$file" "$CONFIG_DIR/$file"
 done
 for file in desktop-entrypoint.sh playwright-mcp-wrapper.sh mcp-stdio.sh verify-runtime.sh; do
