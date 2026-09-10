@@ -3,10 +3,9 @@ command = "/Users/YOUR_USER/.config/agent-browser-native/playwright-mcp-native-w
 enabled = true
 required = true
 startup_timeout_sec = 30
-tool_timeout_sec = 120
+tool_timeout_sec = 240
 enabled_tools = [
   "browser_navigate",
-  "browser_navigate_back",
   "browser_snapshot",
   "browser_find",
   "browser_click",
@@ -18,7 +17,6 @@ enabled_tools = [
   "browser_tabs",
   "browser_wait_for",
   "browser_take_screenshot",
-  "browser_handle_dialog",
   "browser_close",
 ]
 disabled_tools = [

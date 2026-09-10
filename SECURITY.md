@@ -6,6 +6,8 @@ Do not open a public issue containing credentials, browser profile data, cookies
 
 ## Deployment boundary
 
+Native mode's permission MVP gates a fixed MCP surface and stores audit records in a shared local service; see [its boundaries](docs/native-permissions-mvp.md). It is not an OS sandbox against same-user shell/file access, and it does not provide a network firewall or tamper-proof audit. Keep management credentials out of agent context. Site grants do not imply approval for every consequential action on that site.
+
 - Keep host ports 5900 and 6080 bound to `127.0.0.1` and reach noVNC through an authenticated SSH tunnel.
 - Do not expose MCP over HTTP or enable a CDP listener.
 - Do not add `--no-sandbox`, privileged mode, `SYS_ADMIN`, a Docker socket mount, or a host-home mount.

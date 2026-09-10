@@ -3,7 +3,15 @@ set -eu
 
 umask 077
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-CONFIG_DIR="${AGENT_BROWSER_NATIVE_CONFIG_DIR:-$CONFIG_HOME/agent-browser-native}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CONFIG_DIR="${AGENT_BROWSER_NATIVE_CONFIG_DIR:-}"
+if [ -z "$CONFIG_DIR" ]; then
+  if [ -r "$SCRIPT_DIR/data-dir" ]; then
+    CONFIG_DIR="$SCRIPT_DIR"
+  else
+    CONFIG_DIR="$CONFIG_HOME/agent-browser-native"
+  fi
+fi
 DATA_DIR="${AGENT_BROWSER_NATIVE_DATA_DIR:-}"
 
 if [ -z "$DATA_DIR" ]; then
@@ -14,16 +22,5 @@ if [ -z "$DATA_DIR" ]; then
   DATA_DIR="$(cat "$CONFIG_DIR/data-dir")"
 fi
 
-mkdir -p "$DATA_DIR/artifacts" "$DATA_DIR/secrets"
-
-TOKEN_FILE="$DATA_DIR/secrets/extension-token"
-if [ -s "$TOKEN_FILE" ]; then
-  PLAYWRIGHT_MCP_EXTENSION_TOKEN="$(cat "$TOKEN_FILE")"
-  export PLAYWRIGHT_MCP_EXTENSION_TOKEN
-fi
-
-exec node "$CONFIG_DIR/node_modules/@playwright/mcp/cli.js" \
-  --extension \
-  --output-dir "$DATA_DIR/artifacts" \
-  --timeout-action 10000 \
-  --timeout-navigation 90000
+export AGENT_BROWSER_NATIVE_DATA_DIR="$DATA_DIR"
+exec node "$CONFIG_DIR/native-worker.cjs"

@@ -3,7 +3,7 @@
 Both runtime modes expose a standard STDIO MCP server and work with Claude Code or Claude Desktop. Choose one:
 
 - `agent-browser-native`: macOS only; controls a user-selected tab in the regular Chrome profile through the official Playwright Extension.
-- `agent-browser`: Docker; controls the isolated persistent Chromium profile and supports noVNC takeover.
+- `agent-browser`: Docker; controls session-isolated Chromium contexts and supports noVNC takeover. Contexts are retained briefly after idle disconnects, not persisted across broker restarts.
 
 Run the corresponding installer before configuring Claude. Use absolute paths in all MCP configuration.
 
@@ -25,7 +25,7 @@ Run the corresponding installer before configuring Claude. Use absolute paths in
    ```
 
 4. Run `claude mcp get agent-browser-native` to verify the entry, then restart Claude Code.
-5. Ask Claude to take a browser snapshot. Chrome will ask you to approve the connection and select a tab on first use.
+5. Open `node "$HOME/.config/agent-browser-native/native-control-cli.cjs" open` in Terminal to configure site permissions and optionally save the extension credential once. Without a saved credential, Chrome asks you to approve the connection on first use. See [Native permissions MVP](native-permissions-mvp.md) for remote approval and audit access. Configure a tool timeout of at least 240 seconds if your client supports it.
 
 ### Docker runtime
 

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "JS Eyes: unrelated navigation initially gated",
+    "actual": "pending-egress"
+  },
+  {
+    "name": "JS Eyes: page link expands scope even in strict mode",
+    "actual": "allow"
+  },
+  {
+    "name": "JS Eyes: extractPage not site-gated by policy module",
+    "actual": "allow"
+  },
+  {
+    "name": "JS Eyes: executeAction not site-gated by policy module",
+    "actual": "allow"
+  },
+  {
+    "name": "JS Eyes: hostname rule allows alternate scheme/port",
+    "actual": "allow"
+  },
+  {
+    "name": "JS Eyes: audit sanitizer truncates but does not redact arbitrary secret fields",
+    "actual": "SYNTHETIC_TEST_VALUE"
+  },
+  {
+    "name": "browser-agent: read on unlisted site permitted",
+    "actual": {
+      "allowed": true
+    }
+  },
+  {
+    "name": "browser-agent: act on unlisted site permitted",
+    "actual": {
+      "allowed": true
+    }
+  },
+  {
+    "name": "browser-agent: dangerous click normally prompts",
+    "actual": true
+  },
+  {
+    "name": "browser-agent: allowlist text in unrelated URL skips confirmation",
+    "actual": {
+      "allowed": true
+    }
+  },
+  {
+    "name": "browser-control: CDP readOnly guard permits Runtime.evaluate",
+    "actual": null
+  }
+]

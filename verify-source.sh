@@ -14,6 +14,10 @@ sh -n \
   "$ROOT/playwright-mcp-wrapper.sh" \
   "$ROOT/playwright-mcp-native-wrapper.sh"
 
+for source_file in "$ROOT"/native-*.cjs "$ROOT/control-ui/app.js"; do
+  node --check "$source_file"
+done
+
 test_uid="$(id -u)"
 test_gid="$(id -g)"
 test_root="$(mktemp -d)"

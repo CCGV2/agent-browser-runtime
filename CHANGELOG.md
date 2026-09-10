@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a native browser permissions MVP with a loopback management UI, one-time management login codes, global exact-origin rules, expiring session grants, remote approval, pause/revocation, and centralized JSONL auditing.
+- Gate the pinned Playwright MCP tool execution and snapshot paths with a hash-verified in-memory adapter. Reject unknown tools and dependency changes, suppress restricted responses, and avoid replaying uncertain clicks.
+- Save initial extension pairing through the management UI; retain official interactive pairing when no token has been saved.
+
 - Support installation on macOS with Docker Desktop by accepting the system `shasum` utility, validating the Docker daemon, and documenting local noVNC and file-sharing behavior.
 - Print and document the VNC password file location without exposing the password.
 - Add a native macOS installation mode that connects Playwright MCP to user-approved tabs in the real Chrome profile through the official Playwright Extension.

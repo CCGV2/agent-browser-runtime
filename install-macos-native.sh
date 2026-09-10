@@ -36,12 +36,27 @@ fi
 install -d -m 0700 "$CONFIG_DIR" "$DATA_DIR/artifacts" "$DATA_DIR/secrets"
 install -m 0600 "$SOURCE_DIR/package.json" "$SOURCE_DIR/package-lock.json" "$CONFIG_DIR/"
 install -m 0700 "$SOURCE_DIR/playwright-mcp-native-wrapper.sh" "$CONFIG_DIR/"
+for script_name in native-control native-control-client native-control-cli native-guard native-playwright-hook native-worker; do
+  install -m 0600 "$SOURCE_DIR/$script_name.cjs" "$CONFIG_DIR/"
+done
+install -d -m 0700 "$CONFIG_DIR/control-ui"
+install -m 0600 "$SOURCE_DIR"/control-ui/* "$CONFIG_DIR/control-ui/"
 printf '%s\n' "$DATA_DIR" >"$CONFIG_DIR/data-dir"
 chmod 0600 "$CONFIG_DIR/data-dir"
 
-npm ci --omit=dev --prefix "$CONFIG_DIR"
+npm ci --omit=dev --ignore-scripts --prefix "$CONFIG_DIR"
+# Refuse installation of a dependency artifact the policy adapter has not verified.
+node - "$CONFIG_DIR" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const dir = process.argv[2];
+require(path.join(dir, 'native-playwright-hook.cjs')).transform(fs.readFileSync(path.join(dir, 'node_modules/playwright-core/lib/coreBundle.js'), 'utf8'));
+NODE
 
 printf 'Native Chrome MCP command: %s/playwright-mcp-native-wrapper.sh\n' "$CONFIG_DIR"
 printf 'Artifacts directory: %s/artifacts\n' "$DATA_DIR"
 echo "Install the official Playwright Extension in your regular Chrome profile, then add the command to Codex and restart it."
-echo "Connection approval remains interactive unless a protected extension-token file is configured."
+printf 'Open browser permissions and pairing: node "%s/native-control-cli.cjs" open\n' "$CONFIG_DIR"
+printf 'Remote management login: node "%s/native-control-cli.cjs" login\n' "$CONFIG_DIR"
+echo "The global site allowlist starts empty. Configure it in the management page before browsing."
+echo "First-time extension pairing can be saved once in the management page; no manual token file is needed."

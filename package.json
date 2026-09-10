@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "scripts": {
-    "test": "node --test session-pool.test.cjs broker.test.cjs"
+    "test": "node --test session-pool.test.cjs broker.test.cjs native-control.test.cjs native-guard.test.cjs",
+    "test:native-browser": "node --test native-browser.test.cjs"
   },
   "dependencies": {
     "@playwright/mcp": "0.0.79"

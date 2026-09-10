@@ -1,5 +1,11 @@
 # agent-browser-runtime
 
+## Native MCP MVP：使用入口与验证状态
+
+连接现有 macOS Chrome 的版本请从 [中文快速上手](docs/native-quickstart.zh-CN.md) 开始，包含安装、MCP 客户端配置、首次配对、远程审批、验收和排错。详细机制见 [Native permissions MVP](docs/native-permissions-mvp.md)。这一路径使用 `install-macos-native.sh`，不是下方 Docker 模式的 `install.sh`。
+
+目前已验证独立 Chromium 上的真实 MCP 调用、管理页批准后继续执行、站点限制和审计。2026-09-10 本机验收还确认了现有 Chrome 的官方扩展 token 自动连接，以及允许站点的导航、快照和截图。新环境仍需按教程验收。它是功能原型：同一用户下有 shell 权限的 agent 可以绕过本地代理，当前实现不提供这类隔离。
+
 A hardened, self-hosted desktop runtime for Microsoft Playwright MCP. It runs session-isolated headed Chromium workers in Docker, exposes human takeover through loopback-only VNC/noVNC, and keeps client MCP on STDIO.
 
 ## Security properties
@@ -61,9 +67,17 @@ artifacts:     $HOME/.local/share/agent-browser-native/artifacts
 token file:    $HOME/.local/share/agent-browser-native/secrets/extension-token
 ```
 
-Interactive approval is the default and recommended behavior. To allow automatic reconnection, copy the `PLAYWRIGHT_MCP_EXTENSION_TOKEN` shown by the extension into the token file and set its permissions to `0600`. Never commit, log, or send that token to an agent.
+Native mode now includes a site-permission and audit MVP. Open its local management page after installation:
 
-Native extension mode has a wider trust boundary than the Docker runtime: the selected tab uses the user's real browser state. Keep the same Codex tool allowlist, treat page content as untrusted, and require explicit user approval before consequential actions.
+```bash
+node "$HOME/.config/agent-browser-native/native-control-cli.cjs" open
+```
+
+The global allowlist starts empty. Add exact origins (for example `https://github.com`), or approve a pending request for one session (30 minutes) or globally. Changes apply to subsequent checks without restarting the browser. The management page can also save the official extension token once for automatic connections; you do not need to create or edit its file. First-time token copying from the official extension is still required for automatic reconnection. Without it, official interactive connection approval remains available. Never send the token to an agent.
+
+For remote approval, forward port 7331 through SSH and run the operator-only `native-control-cli.cjs login` command on the browser host to obtain a one-time management login code. See [Native permissions MVP](docs/native-permissions-mvp.md) for the complete flow, compatibility constraints, and limits. Docker mode does not yet use this permission service.
+
+Native extension mode has a wider trust boundary than the Docker runtime: the selected tab uses the user's real browser state. The native worker enforces its own small tool allowlist; use the updated client snippet too. Site approval permits actions within that site; consequential actions still require your agent's separate approval policy. The MVP is not a sandbox against an agent with unrestricted same-user shell or filesystem access.
 
 ## Install
 
@@ -139,6 +153,8 @@ The test creates separate contexts, verifies cookie/page isolation, reconnects,
 and verifies closing one session leaves the other usable.
 
 ## Human takeover
+
+Docker mode launches its own Chromium workers directly, so it needs neither Chrome extension pairing nor an extension token. It does not currently use the native site's allowlist or audit service. Its separate browser state does not include your personal Chrome logins; once you sign into a site there, actions use that account's permissions. The VNC password below authenticates human desktop access and is unrelated to extension pairing.
 
 For a remote Linux host, create an SSH tunnel from the operator's computer:
 
