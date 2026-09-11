@@ -177,3 +177,21 @@ selection unless a current operator already identifies the worker. It retains pa
 it neither changes operator ownership nor releases sensitive observation holds.
 Preview pixels remain transient. Clicking or typing still requires explicit
 takeover and a fresh interaction frame captured during takeover.
+
+Session browser preview
+
+The session header exposes Watch browser in both collapsed mobile and desktop
+layouts. It opens a nonmodal floating viewer, leaving the composer usable.
+The viewer supports dragging, resizing, expansion and close; closing unmounts
+the viewer and stops capture polling. It uses the session's node, not a claimed
+PAX-session-to-worker mapping. Select a worker when the node has multiple.
+
+The operator-only tabs query returns stable per-worker tab IDs and hides titles
+for unapproved tabs. A selected preview tab does not switch the agent's active
+tab; the default follows the agent. Inputs still require takeover and a fresh
+frame for that exact page. Both the Console and runtime must be updated.
+
+Transient pointer metadata marks the center of a recent agent interaction
+target. It is not the system cursor or a recording of mouse movement. It expires
+after eight seconds, is omitted on another page, and contains no input text.
+The frontend draws it above the screenshot without modifying the remote page.

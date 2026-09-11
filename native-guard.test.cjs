@@ -135,3 +135,41 @@ test('viewer keeps heartbeats alive and discards a job that expires behind an ag
   assert.match(result.error,/Browser was busy/);
   assert.equal(captures,0);
 });
+
+test('viewer tab selection does not change the agent tab and hides restricted titles', async () => {
+  const h=harness({origins:['https://allowed.test'],approve:false});
+  h.page.title=async()=> 'Agent tab';
+  h.page.screenshot=async()=>Buffer.from('first');
+  h.page.evaluate=async()=>({width:800,height:600});
+  const second={url:()=> 'https://allowed.test/second',mainFrame:()=>({url:()=> 'https://allowed.test/second',parentFrame:()=>null}),isClosed:()=>false,title:async()=> 'Second tab',screenshot:async()=>Buffer.from('second'),evaluate:h.page.evaluate};
+  const restricted={url:()=> 'https://private.test',mainFrame:()=>({url:()=> 'https://private.test',parentFrame:()=>null}),isClosed:()=>false,title:async()=>{throw Error('Restricted title must not be read');}};
+  h.backend._context.tabs=()=>[{page:h.page,isCurrentTab:()=>true},{page:second,isCurrentTab:()=>false},{page:restricted,isCurrentTab:()=>false}];
+  const list=await h.guard.operatorAction(h.backend,{type:'tabs'});
+  assert.equal(list.tabs[2].title,'Restricted tab');
+  assert.equal(list.tabs[2].restricted,true);
+  const frame=await h.guard.operatorAction(h.backend,{type:'screenshot',tabID:list.tabs[1].id});
+  assert.equal(Buffer.from(frame.image,'base64').toString(),'second');
+  assert.equal((await h.backend._context.ensureTab()).page,h.page);
+  assert.equal((await h.guard.operatorAction(h.backend,{type:'tabs'})).activeTabID,list.activeTabID);
+  assert.ok((await h.guard.operatorAction(h.backend,{type:'screenshot',tabID:list.tabs[2].id})).error);
+});
+
+test('preview pointer describes a recent agent target and expires', async () => {
+  const h=harness({origins:['https://allowed.test'],approve:false});
+  h.page.screenshot=async()=>Buffer.from('frame');
+  h.page.evaluate=async()=>({width:800,height:600});
+  let clicks=0;
+  const locator={boundingBox:async()=>({x:100,y:50,width:40,height:20}),click:async()=>{clicks++;}};
+  h.guard.wrapOperations(locator,h.page,['click']);
+  await locator.click();
+  assert.equal(clicks,1);
+  const frame=await h.guard.operatorAction(h.backend,{type:'screenshot'});
+  assert.deepEqual({...frame.pointer,at:0},{x:120,y:60,action:'click',at:0});
+  h.guard.viewerPointer.at=Date.now()-9000;
+  assert.equal((await h.guard.operatorAction(h.backend,{type:'screenshot'})).pointer,undefined);
+  h.guard.viewerPointer = null;
+  const failed = {boundingBox:locator.boundingBox,click:async()=>{throw Error('Detached target');}};
+  h.guard.wrapOperations(failed,h.page,['click']);
+  await assert.rejects(failed.click(),/Detached target/);
+  assert.equal(h.guard.viewerPointer,null);
+});

@@ -12,7 +12,7 @@ class NativeGuard {
   constructor({dir, port = Number(process.env.AGENT_BROWSER_CONTROL_PORT || PORT), session = crypto.randomUUID(), timeout = 90_000, call} = {}) {
     this.dir = dir; this.port = port; this.session = session; this.timeout = timeout;
     this.call = call || ((route, body) => request(dir, 'runtime', route, body, {port}));
-    this.pages = new WeakSet(); this.contexts = new WeakSet(); this.tail = Promise.resolve(); this.scope = null;
+    this.pages = new WeakSet(); this.contexts = new WeakSet(); this.tail = Promise.resolve(); this.scope = null; this.viewerTabIDs = new WeakMap();
   }
   async policy() {const p = await this.call('/runtime/policy?v=2&session=' + this.session); if (p.paused) throw new PolicyError('BROWSER_CONTROL_PAUSED'); if (p.operator && !this.inOperator) throw new PolicyError('OPERATOR_HAS_CONTROL'); if (p.sensitive && !this.fillingSecret && !this.inOperator) throw new PolicyError('SENSITIVE_SESSION_HELD; operator must resume browser control'); return p;}
   audit(event, fields) {return this.call('/runtime/audit', {event, session: this.session, ...fields});}
@@ -82,7 +82,14 @@ class NativeGuard {
       object[method] = async (...args) => {
         await this.checkPage(page);
         if (this.scope?.breach) throw new PolicyError('PAGE_SCOPE_CHANGED');
-        return original(...args);
+        let pointer;
+        if (typeof object.boundingBox === 'function' && ['click','dblclick','hover','fill','type','pressSequentially'].includes(method)) {
+          const box = await object.boundingBox().catch(() => null);
+          if (box) pointer = {page, url:page.url(), x:box.x + box.width/2, y:box.y + box.height/2, action:method};
+        }
+        const result = await original(...args);
+        if (pointer) this.viewerPointer = {...pointer, at:Date.now()};
+        return result;
       };
     }
   }
@@ -163,12 +170,37 @@ class NativeGuard {
     }, 300);
     this.viewerTimer.unref();
   }
+  viewerTabID(page) {
+    if (!this.viewerTabIDs.has(page)) this.viewerTabIDs.set(page, crypto.randomUUID());
+    return this.viewerTabIDs.get(page);
+  }
+  async operatorTabs(context) {
+    const tabs = [];
+    let activeTabID;
+    for (const tab of context.tabs()) {
+      if (tab.page.isClosed()) continue;
+      const id = this.viewerTabID(tab.page);
+      if (tab.isCurrentTab()) activeTabID = id;
+      try {
+        if (!this.pageAllowed(tab.page, await this.policy())) throw new PolicyError('RESTRICTED_TAB');
+        const title = await tab.page.title();
+        if (!this.pageAllowed(tab.page, await this.policy())) throw new PolicyError('RESTRICTED_TAB');
+        tabs.push({id, title:title.slice(0,200) || 'Blank tab', restricted:false});
+      } catch { tabs.push({id, title:'Restricted tab', restricted:true}); }
+    }
+    return {tabs, activeTabID};
+  }
   async operatorAction(backend, action) {
     this.inOperator = true;
     try {
       const policy = await this.policy();
-      if (action.type !== 'screenshot' && policy.operator !== this.session) throw Error('No takeover');
-      const tab = await backend._context.ensureTab(); const page = tab.page;
+      if (!['screenshot','tabs'].includes(action.type) && policy.operator !== this.session) throw Error('No takeover');
+      if (action.type === 'tabs') return await this.operatorTabs(backend._context);
+      const tab = action.tabID
+        ? backend._context.tabs().find(tab => !tab.page.isClosed() && this.viewerTabID(tab.page) === action.tabID)
+        : await backend._context.ensureTab();
+      if (!tab) throw new PolicyError('VIEWER_TAB_CLOSED');
+      const page = tab.page;
       await this.checkPage(page);
       const url = page.url();
       if (action.type === 'screenshot') {
@@ -179,7 +211,11 @@ class NativeGuard {
         const latest = await this.checkPage(page);
         this.viewerFrame = latest.operator === this.session
           ? {id:crypto.randomUUID(), page, url, size, expires:Date.now()+5000} : null;
-        return {frame:this.viewerFrame?.id || '', image:bytes.toString('base64'), ...size};
+        const point = this.viewerPointer;
+        const pointer = point && point.page === page && point.url === url && Date.now() - point.at < 8000 &&
+          point.x >= 0 && point.y >= 0 && point.x < size.width && point.y < size.height
+          ? {x:point.x, y:point.y, action:point.action, at:point.at} : undefined;
+        return {frame:this.viewerFrame?.id || '', image:bytes.toString('base64'), ...size, ...(pointer ? {pointer} : {})};
       }
       const frame = this.viewerFrame; this.viewerFrame = null;
       if (!frame || frame.id !== action.frame || frame.page !== page || frame.url !== url || frame.expires < Date.now()) throw Error('Stale frame');

@@ -31,8 +31,8 @@ class ViewerStore {
     }
     if (!this.workers.has(session)) throw Error('Browser worker is not connected');
     if (action?.type === 'takeover') {if (this.owner && this.owner !== session) throw Error('Another session has control'); this.setOwner(session); return {ok:true};}
-    if (action?.type !== 'screenshot' && this.owner !== session) throw Error('Take control before interacting');
-    if (!['screenshot','click','key','scroll','text'].includes(action?.type)) throw Error('Unsupported viewer action');
+    if (!['screenshot','tabs'].includes(action?.type) && this.owner !== session) throw Error('Take control before interacting');
+    if (!['screenshot','tabs','click','key','scroll','text'].includes(action?.type)) throw Error('Unsupported viewer action');
     if (this.pending.size >= 2) throw Error('Viewer is busy');
     const id = crypto.randomUUID();
     return new Promise(resolve => this.pending.set(id, {id, session, action, resolve, expires:Date.now()+7000, sent:false}));
