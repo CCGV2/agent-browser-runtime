@@ -21,6 +21,7 @@ async function refresh() {
     state = await api('/admin/state'); $('login').hidden = true; $('dashboard').hidden = false; $('logout').hidden = false;
     $('control-state').textContent = state.policy.paused ? '已暂停：后续浏览器操作将被拒绝。' : '运行中：仅允许已授权站点。';
     $('pause').textContent = state.policy.paused ? '恢复控制' : '暂停全部控制';
+    $('sensitive-sessions').replaceChildren(...(state.sensitiveSessions || []).map(session => {const li = node('li'); li.append(node('span', session), button('确认并恢复', () => api('/admin/resume-sensitive', {session}))); return li;}));
     $('pair-state').textContent = state.paired ? '已保存配对凭证。' : '尚未保存自动连接凭证。';
     $('origins').replaceChildren(...state.policy.origins.map(origin => {const li = node('li'); li.append(node('span', origin), button('撤销', () => api('/admin/policy', {revision: state.policy.revision || 0, origins: state.policy.origins.filter(o => o !== origin), paused: state.policy.paused}), 'secondary')); return li;}));
     $('grants').replaceChildren(...state.grants.map(g => {const li = node('li'); li.append(node('span', `${g.origin} · 会话 ${g.session.slice(0,8)} · ${new Date(g.expires).toLocaleTimeString()} 到期`), button('撤销', () => api('/admin/revoke', {session: g.session, origin: g.origin}), 'secondary')); return li;}));

@@ -14,7 +14,7 @@ function transform(source) {
     ['      async headerSnapshot() {', `      async headerSnapshot() { return globalThis.${KEY}.header(this, () => this._unguardedHeaderSnapshot()); }\n      async _unguardedHeaderSnapshot() {`],
     ['      async captureSnapshot(root, depth, boxes, relativeTo, ariaFormat = "text") {', `      async captureSnapshot(...args) { return globalThis.${KEY}.snapshot(this, () => this._unguardedCaptureSnapshot(...args)); }\n      async _unguardedCaptureSnapshot(root, depth, boxes, relativeTo, ariaFormat = "text") {`],
     ['      async targetLocators(params2) {', `      async targetLocators(params2) { return globalThis.${KEY}.targets(this, () => this._unguardedTargetLocators(params2)); }\n      async _unguardedTargetLocators(params2) {`],
-    ['factory.toolSchemas.map((s) => toMcpTool(s))', `factory.toolSchemas.filter(s => globalThis.${KEY}.tools.has(s.name)).map((s) => toMcpTool(s))`],
+    ['factory.toolSchemas.map((s) => toMcpTool(s))', `factory.toolSchemas.filter(s => globalThis.${KEY}.tools.has(s.name)).map((s) => toMcpTool(s)).concat(globalThis.${KEY}.extraTools || [])`],
   ];
   for (const [before, after] of changes) {
     if (source.split(before).length !== 2) throw Error('Playwright hook shape changed; refusing unguarded startup');

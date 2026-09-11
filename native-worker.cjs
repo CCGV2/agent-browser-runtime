@@ -4,7 +4,7 @@ const path = require('node:path');
 const {createRequire} = require('node:module');
 const {dataDir} = require('./native-control.cjs');
 const {ensureService} = require('./native-control-client.cjs');
-const {NativeGuard, TOOLS} = require('./native-guard.cjs');
+const {NativeGuard, TOOLS, SECRET_TOOL} = require('./native-guard.cjs');
 const {install} = require('./native-playwright-hook.cjs');
 
 async function main() {
@@ -13,7 +13,7 @@ async function main() {
   const localRequire = createRequire(path.join(__dirname, 'package.json'));
   const cli = path.join(path.dirname(localRequire.resolve('@playwright/mcp/package.json')), 'cli.js');
   const core = createRequire(cli).resolve('playwright-core/lib/coreBundle');
-  const guard = new NativeGuard({dir}); guard.tools = TOOLS;
+  const guard = new NativeGuard({dir}); guard.tools = TOOLS; guard.extraTools = [SECRET_TOOL];
   install(core, guard);
   // Read the extension credential only in the worker that needs it. Never print it.
   const tokenFile = path.join(dir, 'secrets', 'extension-token');

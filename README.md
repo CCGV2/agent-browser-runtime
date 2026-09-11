@@ -206,3 +206,7 @@ Apache License 2.0. This repository publishes source and build instructions; no 
 ## Release status
 
 `0.1.0` is the first source release candidate. It captures the deployed Chromium/Crashpad and sandbox fixes and has been validated on Ubuntu Server. macOS support uses Docker Desktop's Linux VM and the same source and runtime verification scripts.
+
+## Pax remote browser control
+
+See [Pax browser control MVP](docs/pax-browser-mvp.md) for the four-repository rollout, remote Chrome and Docker viewing, and one-use password filling.

@@ -58,6 +58,10 @@ test('HTTP separates runtime/admin, rejects cross-origin and replays, and pairin
   const temporary=s.request({session:'alpha',tool:'browser_snapshot',origin:'https://other.test'});s.decide(temporary.id,'allow','session');
   assert.equal((await send(s.port,'/admin/revoke',admin,{session:'alpha',origin:'https://other.test'})).status,200);
   assert.ok(!s.policyFor('alpha').origins.includes('https://other.test'));
+  s.secrets.holds.add('alpha');
+  assert.equal((await send(s.port,'/runtime/policy?session=old',runtime)).body.paused,true);
+  assert.equal((await send(s.port,'/runtime/policy?v=2&session=new',runtime)).body.sensitive,true);
+  s.secrets.resume('alpha');
   const code=(await send(s.port,'/admin/login-code',admin,{})).body.code;
   const login=await send(s.port,'/login','',{code}); assert.equal(login.status,200);
   assert.equal((await send(s.port,'/login','',{code})).status,401);

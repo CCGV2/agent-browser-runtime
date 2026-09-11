@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const {request} = require('./native-control-client.cjs');
 const {normalizeOrigin, PORT} = require('./native-control.cjs');
 
-const TOOLS = new Set(['browser_navigate', 'browser_snapshot', 'browser_find', 'browser_click', 'browser_fill_form', 'browser_type', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_close']);
+const TOOLS = new Set(['browser_fill_secret', 'browser_navigate', 'browser_snapshot', 'browser_find', 'browser_click', 'browser_fill_form', 'browser_type', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_close']);
 class PolicyError extends Error { constructor(code) {super(code); this.code = code;} }
 function originOf(url, port) {
   try {const u = new URL(url); return normalizeOrigin(u.origin, port);} catch {throw new PolicyError('UNSUPPORTED_OR_MANAGEMENT_ORIGIN');}
@@ -14,7 +14,7 @@ class NativeGuard {
     this.call = call || ((route, body) => request(dir, 'runtime', route, body, {port}));
     this.pages = new WeakSet(); this.contexts = new WeakSet(); this.tail = Promise.resolve(); this.scope = null;
   }
-  async policy() {const p = await this.call('/runtime/policy?session=' + this.session); if (p.paused) throw new PolicyError('BROWSER_CONTROL_PAUSED'); return p;}
+  async policy() {const p = await this.call('/runtime/policy?v=2&session=' + this.session); if (p.paused) throw new PolicyError('BROWSER_CONTROL_PAUSED'); if (p.operator && !this.inOperator) throw new PolicyError('OPERATOR_HAS_CONTROL'); if (p.sensitive && !this.fillingSecret && !this.inOperator) throw new PolicyError('SENSITIVE_SESSION_HELD; operator must resume browser control'); return p;}
   audit(event, fields) {return this.call('/runtime/audit', {event, session: this.session, ...fields});}
   async need(origin, tool, wait, signal) {
     let p = await this.policy();
@@ -126,8 +126,85 @@ class NativeGuard {
       } catch {if (this.scope) this.scope.breach = true; await route.abort('blockedbyclient').catch(() => {});}
     });
   }
+  startViewer(backend) {
+    if (this.viewerTimer) return;
+    let polling = false;
+    this.viewerTimer = setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const job = await this.call('/runtime/view-poll', {session:this.session});
+        if (job.id) {
+          const work = this.tail.then(() => this.operatorAction(backend, job.action));
+          this.tail = work.catch(() => {});
+          await this.call('/runtime/view-result', {session:this.session, id:job.id, result:await work});
+        }
+      } catch {} finally {polling = false;}
+    }, 300);
+    this.viewerTimer.unref();
+  }
+  async operatorAction(backend, action) {
+    this.inOperator = true;
+    try {
+      const policy = await this.policy();
+      if (policy.operator !== this.session) throw Error('No takeover');
+      const tab = await backend._context.ensureTab(); const page = tab.page;
+      await this.checkPage(page);
+      const url = page.url();
+      if (action.type === 'screenshot') {
+        const bytes = await page.screenshot({type:'jpeg', quality:65, timeout:4000});
+        await this.checkPage(page);
+        if (page.url() !== url || bytes.length > 600_000) throw Error('Frame invalid');
+        const size = await page.evaluate(() => ({width:innerWidth, height:innerHeight}));
+        this.viewerFrame = {id:crypto.randomUUID(), page, url, size, expires:Date.now()+5000};
+        return {frame:this.viewerFrame.id, image:bytes.toString('base64'), ...size};
+      }
+      const frame = this.viewerFrame; this.viewerFrame = null;
+      if (!frame || frame.id !== action.frame || frame.page !== page || frame.url !== url || frame.expires < Date.now()) throw Error('Stale frame');
+      if (action.type === 'click') {
+        if (![action.x,action.y].every(Number.isFinite) || action.x < 0 || action.y < 0 || action.x >= frame.size.width || action.y >= frame.size.height) throw Error('Coordinates invalid');
+        await page.mouse.click(action.x, action.y, {timeout:4000});
+      } else if (action.type === 'scroll') {
+        if (![action.x,action.y].every(n => Number.isFinite(n) && Math.abs(n) <= 2000)) throw Error('Scroll invalid');
+        await page.mouse.wheel(action.x, action.y);
+      } else if (action.type === 'key') {
+        if (!['Enter','Tab','Shift+Tab','Backspace','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','Delete','ControlOrMeta+A'].includes(action.key)) throw Error('Key invalid');
+        await page.keyboard.press(action.key);
+      } else if (action.type === 'text') {
+        if (typeof action.text !== 'string' || action.text.length > 4096) throw Error('Text invalid');
+        await page.keyboard.insertText(action.text);
+      } else throw Error('Action invalid');
+      await this.checkPage(page);
+      return {ok:true};
+    } catch {return {error:'Viewer action failed or frame changed; refresh before retrying'};}
+    finally {this.inOperator = false;}
+  }
+  async fillSecret(context, args, signal) {
+    let credential;
+    try {
+      credential = await this.call('/runtime/consume-secret', {...args, session:this.session});
+      this.fillingSecret = true;
+      if (signal?.aborted) throw Error('Cancelled');
+      const tab = await context.ensureTab();
+      await this.checkPage(tab.page);
+      if (originOf(tab.page.url(), this.port) !== args.origin) throw Error('Origin changed');
+      const {locator} = await tab.targetLocator({target:args.target});
+      // Check origin and field type in the same renderer task as the assignment.
+      // Never ask upstream MCP to fill: it automatically produces snapshots.
+      await locator.evaluate((el, {value, origin}) => {
+        if (location.origin !== origin || !(el instanceof HTMLInputElement) || el.type !== 'password' || el.disabled || el.readOnly || !el.isConnected) throw Error('Invalid password target');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(el, value);
+        el.dispatchEvent(new Event('input', {bubbles:true}));
+        el.dispatchEvent(new Event('change', {bubbles:true}));
+      }, {value:credential.value, origin:args.origin}, {timeout:5000});
+      return {content:[{type:'text', text:'Password filled. Browser tools are held until the operator resumes. No submit action was requested.'}]};
+    } catch {throw new PolicyError('SECRET_FILL_FAILED; reference is not reusable; operator must inspect before resuming');}
+    finally {this.fillingSecret = false; if (credential) credential.value = undefined;}
+  }
   run(backend, tool, args, signal) {
     // MCP clients may pipeline requests. Approval and browser selection are serialized.
+    this.startViewer(backend);
     const work = this.tail.then(() => this.execute(backend, tool, args, signal));
     this.tail = work.catch(() => {}); return work;
   }
@@ -141,10 +218,13 @@ class NativeGuard {
       if (args._meta || args.filename || args.path || args.file || args.code) throw new PolicyError('FILE_AND_CODE_ARGUMENTS_NOT_ALLOWED');
       if (signal?.aborted) throw new PolicyError('REQUEST_CANCELLED');
       let policy = await this.policy();
+      if (policy.sensitive) throw new PolicyError('SENSITIVE_SESSION_HELD; operator must resume browser control');
       this.scope.allowed = new Set(policy.origins);
       const context = backend._context;
       await this.setup(context);
-      if (tool === 'browser_navigate' || tool === 'browser_tabs' && args.action === 'new' && args.url) {
+      if (tool === 'browser_fill_secret') {
+        result = await this.fillSecret(context, args, signal);
+      } else if (tool === 'browser_navigate' || tool === 'browser_tabs' && args.action === 'new' && args.url) {
         origin = originOf(args.url, this.port);
         policy = await this.need(origin, tool, true, signal);
         this.scope.allowed = new Set(policy.origins);
@@ -186,4 +266,5 @@ class NativeGuard {
     return result;
   }
 }
-module.exports = {NativeGuard, PolicyError, TOOLS, originOf};
+const SECRET_TOOL = {name:'browser_fill_secret', description:'Fill an operator-authorized, single-use password reference. Does not submit. Further tools pause until operator resumes.', inputSchema:{type:'object', properties:{secret_ref:{type:'string'}, origin:{type:'string'}, target:{type:'string'}}, required:['secret_ref','origin','target'], additionalProperties:false}};
+module.exports = {SECRET_TOOL, NativeGuard, PolicyError, TOOLS, originOf};

@@ -44,6 +44,8 @@ class ControlStore {
     if (this.policy.version !== 1 || !Array.isArray(this.policy.origins) || typeof this.policy.paused !== 'boolean') throw Error('Invalid policy');
     this.policy.origins = this.policy.origins.map(o => normalizeOrigin(o, port));
     this.auditFile = path.join(dir, 'control', 'audit.jsonl');
+    this.viewer = new (require('./native-viewer.cjs').ViewerStore)(dir);
+    this.secrets = new (require('./native-secrets.cjs').SecretStore)(dir, {now});
     this.audit('service.started');
   }
   audit(event, fields = {}) {
@@ -58,13 +60,14 @@ class ControlStore {
   }
   sweep() {
     const now = this.now();
+    this.secrets.sweep(); this.viewer.sweep();
     for (const [id, p] of this.pending) if (p.expires <= now) this.pending.delete(id);
     for (const [key, expiry] of this.grants) if (expiry <= now) this.grants.delete(key);
     for (const map of [this.loginCodes, this.adminSessions]) for (const [key, expiry] of map) if (expiry <= now) map.delete(key);
   }
   policyFor(session) {
     this.sweep();
-    return {revision: this.policy.revision || 0, paused: this.policy.paused,
+    return {revision: this.policy.revision || 0, paused: this.policy.paused, sensitive: this.secrets.holds.size > 0, operator: this.viewer.owner,
       origins: this.policy.paused ? [] : [...new Set([...this.policy.origins, ...[...this.grants.keys()].filter(k => k.startsWith(session + '\n')).map(k => k.split('\n')[1])])]};
   }
   changePolicy(origins, paused) {
@@ -118,10 +121,10 @@ class ControlStore {
 function equal(a, b) {
   return typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
-async function readBody(req) {
+async function readBody(req, limit = 16 * 1024) {
   if (!String(req.headers['content-type']).startsWith('application/json')) throw Error('JSON required');
   let text = '';
-  for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 16 * 1024) throw Error('Request too large'); }
+  for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > limit) throw Error('Request too large'); }
   return JSON.parse(text || '{}');
 }
 function createControlServer(store) {
@@ -163,7 +166,28 @@ function createControlServer(store) {
       }
       if (route === '/admin/logout' && req.method === 'POST') {store.adminSessions.delete(token); return reply(200, {ok: true});}
       if (route === '/admin/shutdown' && req.method === 'POST') {store.audit('service.stopped'); reply(200, {ok: true}); server.close(); return;}
-      if (route === '/admin/state' && req.method === 'GET') return reply(200, {policy: store.policy, pending: [...store.pending.values()], audit: store.auditTail(), paired: fs.existsSync(path.join(store.dir, 'secrets', 'extension-token')), grants: [...store.grants].map(([key, expires]) => ({session: key.split('\n')[0], origin: key.split('\n')[1], expires}))});
+      if (route === '/admin/state' && req.method === 'GET') return reply(200, {policy: store.policy, sensitiveSessions: [...store.secrets.holds], workers: [...store.viewer.workers.values()], operator: store.viewer.owner, pending: [...store.pending.values()], audit: store.auditTail(), paired: fs.existsSync(path.join(store.dir, 'secrets', 'extension-token')), grants: [...store.grants].map(([key, expires]) => ({session: key.split('\n')[0], origin: key.split('\n')[1], expires}))});
+      if (route === '/admin/view' && req.method === 'POST') {
+        const b = await readBody(req); store.audit('viewer.action', {session:b.session, tool:b.action?.type});
+        return reply(200, await store.viewer.request(b));
+      }
+      if (route === '/runtime/view-poll' && req.method === 'POST') return reply(200, store.viewer.poll((await readBody(req)).session));
+      if (route === '/runtime/view-result' && req.method === 'POST') {store.viewer.finish(await readBody(req, 1024 * 1024)); return reply(200, {ok:true});}
+      if (route === '/admin/secret' && req.method === 'POST') {
+        const b = await readBody(req); b.origin = normalizeOrigin(b.origin, store.port);
+        if (!store.policyFor(b.session).origins.includes(b.origin)) throw Error('Secret origin is not allowed');
+        store.audit('secret.registration_requested', {session:b.session, origin:b.origin});
+        try {const grant = store.secrets.register(b); store.audit('secret.registered', {session:b.session, origin:b.origin}); return reply(200, grant);} catch {throw Error('Secret registration failed');}
+      }
+      if (route === '/admin/resume-sensitive' && req.method === 'POST') {
+        const b = await readBody(req); store.audit('secret.released', {session:b.session});
+        store.secrets.resume(b.session); return reply(200, {ok:true});
+      }
+      if (route === '/runtime/consume-secret' && req.method === 'POST') {
+        const b = await readBody(req);
+        store.audit('secret.consume_requested', {session:b.session, origin:b.origin});
+        try {return reply(200, store.secrets.consume(b));} catch {throw Error('Secret unavailable');}
+      }
       if (route === '/admin/policy' && req.method === 'POST') {
         const b = await readBody(req);
         if (b.revision !== (store.policy.revision || 0)) return reply(409, {error: 'Policy changed elsewhere. Refresh and retry.'});
@@ -180,7 +204,12 @@ function createControlServer(store) {
         if (typeof b.token !== 'string' || !/^[\x21-\x7e]{16,4096}$/.test(b.token)) throw Error('Invalid extension token');
         store.audit('extension.paired'); atomic(path.join(store.dir, 'secrets', 'extension-token'), b.token); return reply(200, {paired: true, reconnectRequired: true});
       }
-      if (route === '/runtime/policy' && req.method === 'GET') return reply(200, store.policyFor(url.searchParams.get('session') || ''));
+      if (route === '/runtime/policy' && req.method === 'GET') {
+        const p = store.policyFor(url.searchParams.get('session') || '');
+        // Older workers only understand pause. They must respect new holds too.
+        if (url.searchParams.get('v') !== '2' && (p.sensitive || p.operator)) return reply(200, {...p, paused:true, origins:[]});
+        return reply(200, p);
+      }
       if (route === '/runtime/request' && req.method === 'POST') return reply(200, store.request(await readBody(req)));
       if (route === '/runtime/decision' && req.method === 'GET') {
         const p = store.pending.get(url.searchParams.get('id')); return reply(200, {decision: p?.session === url.searchParams.get('session') ? p.decision : 'expired'});
@@ -192,6 +221,8 @@ function createControlServer(store) {
       reply(404, {error: 'Not found'});
     } catch (error) { if (!res.headersSent) reply(400, {error: ['ENOSPC','EACCES','EIO'].includes(error.code) ? 'Control storage unavailable' : error.message}); else res.end(); }
   });
+  const sweepTimer = setInterval(() => {try {store.sweep();} catch {server.close();}}, 1000); sweepTimer.unref();
+  server.on('close', () => clearInterval(sweepTimer));
   server.requestTimeout = 10_000; server.headersTimeout = 10_000;
   return server;
 }

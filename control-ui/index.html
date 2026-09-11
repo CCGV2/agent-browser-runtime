@@ -6,6 +6,7 @@
 <section id="login"><h2>连接管理端</h2><p>在运行浏览器的电脑上执行 <code>node native-control-cli.cjs login</code>，输入一次性登录码。远程访问请使用 SSH 隧道。</p><form id="login-form"><label>登录码<input id="login-code" autocomplete="off" required></label><button>登录</button></form></section>
 <div id="dashboard" hidden>
 <section><div class="row"><h2>控制状态</h2><button id="pause">暂停全部控制</button></div><p id="control-state"></p><p class="muted">暂停或修改名单会撤销所有临时授权；已经发出的动作无法撤回。</p></section>
+<section><h2>密码填写后的暂停会话</h2><p>确认页面已不再显示敏感信息后，再恢复 agent。</p><ul id="sensitive-sessions"></ul></section>
 <section><h2>等待你的授权</h2><p class="muted">只授权你认识的站点。临时授权仅限该会话，30 分钟后到期。</p><div id="requests"></div></section>
 <section><h2>全局允许的站点</h2><p class="muted">适用于所有会话；空名单且没有临时授权时，不允许任何站点。填写协议、域名和必要的端口，不包含路径。</p><form id="origin-form"><label>站点<input id="origin" type="url" placeholder="https://github.com" required></label><button>添加</button></form><ul id="origins"></ul><h3>临时授权</h3><ul id="grants"></ul></section>
 <section><h2>首次配对</h2><p id="pair-state"></p><p>安装官方 Playwright 扩展后，在扩展页面复制 Extension Token，粘贴一次即可。凭证只保存到本机，不会显示给 agent。保存后重新连接 MCP 才会使用新凭证。</p><form id="pair-form"><label>Extension Token<input id="extension-token" type="password" autocomplete="off" required minlength="16"></label><button>保存配对</button></form><p class="muted">尚未配对时仍可使用官方交互式连接审批。这里的登录码与扩展凭证是两种不同的凭证。</p></section>

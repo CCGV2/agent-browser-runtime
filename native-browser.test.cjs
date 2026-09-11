@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const http = require('node:http');
 const readline = require('node:readline');
+const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {ControlStore, createControlServer} = require('./native-control.cjs');
 
@@ -14,13 +15,15 @@ async function until(fn, timeout = 30_000) {const end=Date.now()+timeout; while(
 test('real MCP: approval, exact origins, iframe blocking, no replay, revocation and auditing', {timeout:150_000,skip:!process.env.AGENT_BROWSER_TEST_EXECUTABLE}, async t => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-browser-e2e-'));
   let privateReads=0;
+  const canary = crypto.randomBytes(32).toString('hex'); let passwordMatched = false;
   const privateSite=http.createServer((_req,res)=>{privateReads++;res.end('<h1>PRIVATE_PAGE_SENTINEL</h1>');});
   const privatePort=await listen(privateSite); const privateOrigin=`http://127.0.0.1:${privatePort}`;
   const site=http.createServer((req,res)=>{
     res.setHeader('Content-Type','text/html');
+    if(req.url==='/check' && req.method === 'POST') {let body=''; req.on('data', d => body += d); req.on('end', () => {passwordMatched = body === canary; body=''; res.end('ok');}); return;}
     if(req.url==='/iframe') return res.end(`<h1>Allowed frame host</h1><iframe src="${privateOrigin}/"></iframe>`);
     if(req.url==='/redirect'){res.writeHead(302,{Location:privateOrigin});return res.end();}
-    res.end(`<h1>Allowed fixture</h1><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}">Leave</a>`);
+    res.end(`<h1>Allowed fixture</h1><input id="password" type="password" oninput="fetch('/check', {method:'POST',body:this.value})"><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}">Leave</a>`);
   });
   const sitePort=await listen(site); const origin=`http://127.0.0.1:${sitePort}`;
   const store=new ControlStore(dir); const control=createControlServer(store); store.port=await listen(control);
@@ -67,6 +70,38 @@ test('real MCP: approval, exact origins, iframe blocking, no replay, revocation 
   assert.doesNotMatch(artifactText(),/PRIVATE_PAGE_SENTINEL/);
   // Direct authorized navigation can recover a tab stranded outside the allowlist.
   assert.ok(!(await call('browser_navigate',{url:origin})).isError);
+  assert.ok(tools.some(t => t.name === 'browser_fill_secret'));
+  const liveSession = store.auditTail().find(e => e.event === 'tool.started').session;
+  await until(() => store.viewer.workers.has(liveSession));
+  await store.viewer.request({session:liveSession,action:{type:'takeover'}});
+  assert.equal((await call('browser_snapshot')).isError,true);
+  const remoteFrame = await store.viewer.request({session:liveSession,action:{type:'screenshot'}});
+  assert.ok(remoteFrame.image && remoteFrame.frame, JSON.stringify(remoteFrame));
+  const remoteInput = await store.viewer.request({session:liveSession,action:{type:'key',key:'Tab',frame:remoteFrame.frame}});
+  assert.equal(remoteInput.ok,true,JSON.stringify(remoteInput));
+  const staleInput = await store.viewer.request({session:liveSession,action:{type:'key',key:'Tab',frame:remoteFrame.frame}});
+  assert.ok(staleInput.error);
+  await store.viewer.request({session:liveSession,action:{type:'release'}});
+  store.secrets.root = fs.realpathSync(dir);
+  const file = path.join(store.secrets.root, crypto.randomBytes(16).toString('hex'));
+  fs.writeFileSync(file, canary, {mode:0o600});
+  const session = store.auditTail().find(e => e.event === 'tool.started').session;
+  const grant = store.secrets.register({fileRef:'file:'+file, session, origin, target:'#password'});
+  const filled = await call('browser_fill_secret', {secret_ref:grant.secret_ref, origin, target:'#password'});
+  assert.ok(!filled.isError, JSON.stringify(filled));
+  await until(() => passwordMatched);
+  assert.equal(fs.existsSync(file), false);
+  assert.deepEqual(fs.readdirSync(store.secrets.dir), []);
+  assert.equal(JSON.stringify(filled).includes(canary), false);
+  const held = await call('browser_snapshot'); assert.equal(held.isError, true);
+  assert.match(JSON.stringify(held), /SENSITIVE_SESSION_HELD/);
+  assert.equal(artifactText().includes(canary), false);
+  assert.equal(stderr.includes(canary), false);
+  assert.equal(fs.readFileSync(store.auditFile, 'utf8').includes(canary), false);
+  await operatorPage.getByRole('button', {name:'确认并恢复', exact:true}).click();
+  assert.equal(store.secrets.holds.size, 0);
+  const replay = await call('browser_fill_secret', {secret_ref:grant.secret_ref, origin, target:'#password'});
+  assert.equal(replay.isError, true);
   store.changePolicy([],false);
   const revoked=call('browser_snapshot');
   const denied=await until(()=>[...store.pending.values()].find(p=>p.origin===origin&&p.decision==='pending'));store.decide(denied.id,'deny','session');

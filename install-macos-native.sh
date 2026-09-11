@@ -36,7 +36,7 @@ fi
 install -d -m 0700 "$CONFIG_DIR" "$DATA_DIR/artifacts" "$DATA_DIR/secrets"
 install -m 0600 "$SOURCE_DIR/package.json" "$SOURCE_DIR/package-lock.json" "$CONFIG_DIR/"
 install -m 0700 "$SOURCE_DIR/playwright-mcp-native-wrapper.sh" "$CONFIG_DIR/"
-for script_name in native-control native-control-client native-control-cli native-guard native-playwright-hook native-worker; do
+for script_name in native-control native-control-client native-control-cli native-guard native-playwright-hook native-worker native-secrets native-viewer; do
   install -m 0600 "$SOURCE_DIR/$script_name.cjs" "$CONFIG_DIR/"
 done
 install -d -m 0700 "$CONFIG_DIR/control-ui"
