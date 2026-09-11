@@ -210,3 +210,8 @@ Apache License 2.0. This repository publishes source and build instructions; no 
 ## Pax remote browser control
 
 See [Pax browser control MVP](docs/pax-browser-mvp.md) for the four-repository rollout, remote Chrome and Docker viewing, and one-use password filling.
+
+Site approvals follow the top-level page origin. Embedded frames and API/resource
+requests belong to that page; they do not need separate grants. New top-level
+origins (including redirects, popups and other tabs) still require approval.
+Approving a page includes reading and interacting with its embedded content.

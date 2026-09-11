@@ -62,7 +62,12 @@ An input consumes its screenshot reference. A stale reference, changed page URL,
 wrong session, or lost response is rejected without automatic retry. Refresh the
 image before trying again. This is an explicitly refreshed screenshot interface,
 not a continuous screencast, and cannot eliminate changes within the same page
-between capture and click. The site policy still applies to every page/frame.
+between capture and click. Site approval applies to the top-level page origin (the address bar). Embedded
+frames and normal API/resource requests are part of that approved page and do
+not create separate approval prompts. A top-level redirect, popup or another tab
+still needs its own site approval. Approving a page includes the embedded content
+it displays; this is not an outbound network allowlist. The local management
+origin remains unavailable to agent navigation, including embedded navigation.
 
 **Release control** hands tools back to the agent. Closing the panel or losing
 the worker leaves the hold in place, including across control-service restart.

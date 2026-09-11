@@ -8,7 +8,7 @@ const {transform} = require('./native-playwright-hook.cjs');
 function harness({origins = [], approve = true} = {}) {
   const policy = {origins,paused:false}; const events=[]; let invoked=0; let requested=0;
   const page=new EventEmitter(); page.url=()=>page.currentURL; page.currentURL='https://allowed.test'; page.isClosed=()=>false;
-  const frame={url:()=>page.currentURL,parentFrame:()=>null}; page.frames=()=>[frame];
+  const frame={url:()=>page.currentURL,parentFrame:()=>null}; page.frames=()=>[frame]; page.mainFrame=()=>frame;
   const tab={page,isCurrentTab:()=>true};
   const raw={route:async (_pattern,fn)=>{raw.handler=fn;}};
   const context={ensureBrowserContext:async()=>raw,ensureTab:async()=>tab,tabs:()=>[tab]};
@@ -35,10 +35,10 @@ test('revocation, pause, arbitrary tools and file output are enforced server-sid
   for(const [tool,args] of [['browser_evaluate',{expression:'1'}],['browser_snapshot',{filename:'/tmp/secret'}],['browser_click',{_meta:{cwd:'/tmp'}}]]) assert.equal((await h.guard.run(h.backend,tool,args)).isError,true);
   assert.equal(h.invoked,1);
 });
-test('cross-origin iframe requires authorization; blocked navigation is not replayed',async()=>{
+test('embedded content shares page approval; top-level navigation is not replayed',async()=>{
   const h=harness({origins:['https://allowed.test'],approve:false});
   h.page.frames=()=>[h.frame,{url:()=> 'https://untrusted.test',parentFrame:()=>h.frame}];
-  assert.equal((await h.guard.run(h.backend,'browser_snapshot',{})).isError,true); assert.equal(h.invoked,0);
+  assert.ok(!(await h.guard.run(h.backend,'browser_snapshot',{})).isError); assert.equal(h.invoked,1); assert.equal(h.requested,0);
   h.page.frames=()=>[h.frame];
   h.backend._unguardedCallTool=async()=>{h.page.currentURL='https://untrusted.test';h.page.emit('framenavigated',h.frame);return {content:[{type:'text',text:'PRIVATE_PAGE_SENTINEL'}]};};
   const r=await h.guard.run(h.backend,'browser_click',{}); assert.equal(r.isError,true); assert.doesNotMatch(JSON.stringify(r),/PRIVATE_PAGE_SENTINEL/);
@@ -65,4 +65,30 @@ test('multi-field input rechecks the page before each actual operation',async()=
 test('pinned installed bundle adapter compiles',()=>{
   const core=require.resolve('playwright-core/lib/coreBundle');
   new (require('node:vm').Script)(transform(fs.readFileSync(core,'utf8')));
+});
+
+test('embedded navigation follows the page grant without granting its destination as a tab',async()=>{
+  const h=harness({origins:['https://allowed.test'],approve:false});
+  await h.guard.setup(h.backend._context);
+  const child={parentFrame:()=>h.frame,page:()=>h.page};
+  let continued=0,blocked=0;
+  const route=(url,frame)=>({request:()=>({isNavigationRequest:()=>true,url:()=>url,frame:()=>frame}),continue:async()=>continued++,abort:async()=>blocked++});
+  await h.raw.handler(route('https://embedded.test/widget',child));
+  assert.equal(continued,1);assert.equal(h.requested,0);
+  await h.raw.handler(route('http://127.0.0.1:7331/',child));
+  assert.equal(blocked,1);
+  await h.raw.handler(route('https://embedded.test/',h.frame));
+  assert.equal(blocked,2);assert.equal(h.requested,1);
+  h.page.currentURL='https://embedded.test';
+  const listed=await h.guard.run(h.backend,'browser_tabs',{action:'list'});
+  assert.match(JSON.stringify(listed),/Restricted tab/);
+});
+
+test('blocked and opaque child frames cannot poison an approved page snapshot',async()=>{
+  const h=harness({origins:['https://allowed.test'],approve:false});
+  const child={url:()=> 'chrome-error://chromewebdata/',parentFrame:()=>h.frame};
+  h.page.frames=()=>[h.frame,child];
+  h.backend._unguardedCallTool=async()=>{h.page.emit('framenavigated',child);return {content:[{type:'text',text:'Main page'}]};};
+  const result=await h.guard.run(h.backend,'browser_snapshot',{});
+  assert.ok(!result.isError,JSON.stringify(result));assert.equal(h.requested,0);
 });

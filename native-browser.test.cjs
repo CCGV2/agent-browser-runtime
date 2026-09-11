@@ -12,18 +12,18 @@ const {ControlStore, createControlServer} = require('./native-control.cjs');
 
 async function listen(server) {await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);}); return server.address().port;}
 async function until(fn, timeout = 30_000) {const end=Date.now()+timeout; while(Date.now()<end){const r=fn();if(r)return r;await new Promise(r=>setTimeout(r,50));} throw Error('Condition timed out');}
-test('real MCP: approval, exact origins, iframe blocking, no replay, revocation and auditing', {timeout:150_000,skip:!process.env.AGENT_BROWSER_TEST_EXECUTABLE}, async t => {
+test('real MCP: approval, page origins, embedded content, no replay, revocation and auditing', {timeout:150_000,skip:!process.env.AGENT_BROWSER_TEST_EXECUTABLE}, async t => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-browser-e2e-'));
-  let privateReads=0;
+  let privateReads=0; let blockedTopReads=0;
   const canary = crypto.randomBytes(32).toString('hex'); let passwordMatched = false;
-  const privateSite=http.createServer((_req,res)=>{privateReads++;res.end('<h1>PRIVATE_PAGE_SENTINEL</h1>');});
+  const privateSite=http.createServer((req,res)=>{privateReads++;if(req.url === '/blocked-top') blockedTopReads++;res.end('<h1>PRIVATE_PAGE_SENTINEL</h1>');});
   const privatePort=await listen(privateSite); const privateOrigin=`http://127.0.0.1:${privatePort}`;
   const site=http.createServer((req,res)=>{
     res.setHeader('Content-Type','text/html');
     if(req.url==='/check' && req.method === 'POST') {let body=''; req.on('data', d => body += d); req.on('end', () => {passwordMatched = body === canary; body=''; res.end('ok');}); return;}
     if(req.url==='/iframe') return res.end(`<h1>Allowed frame host</h1><iframe src="${privateOrigin}/"></iframe>`);
-    if(req.url==='/redirect'){res.writeHead(302,{Location:privateOrigin});return res.end();}
-    res.end(`<h1>Allowed fixture</h1><input id="password" type="password" oninput="fetch('/check', {method:'POST',body:this.value})"><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}">Leave</a>`);
+    if(req.url==='/redirect'){res.writeHead(302,{Location:privateOrigin+'/blocked-top'});return res.end();}
+    res.end(`<h1>Allowed fixture</h1><input id="password" type="password" oninput="fetch('/check', {method:'POST',body:this.value})"><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}/blocked-top">Leave</a>`);
   });
   const sitePort=await listen(site); const origin=`http://127.0.0.1:${sitePort}`;
   const store=new ControlStore(dir); const control=createControlServer(store); store.port=await listen(control);
@@ -63,11 +63,14 @@ test('real MCP: approval, exact origins, iframe blocking, no replay, revocation 
   assert.equal((await call('browser_evaluate',{expression:'document.title'})).isError,true);
   const before=privateReads;
   const leave=await call('browser_click',{target:'#leave'});
-  assert.equal(leave.isError,true);assert.doesNotMatch(JSON.stringify(leave),/PRIVATE_PAGE_SENTINEL/);assert.equal(privateReads,before);
+  assert.equal(leave.isError,true);assert.doesNotMatch(JSON.stringify(leave),/PRIVATE_PAGE_SENTINEL/);assert.equal(privateReads,before);assert.equal(blockedTopReads,0);
   const snap=await call('browser_snapshot');assert.doesNotMatch(JSON.stringify(snap),/PRIVATE_PAGE_SENTINEL/);
-  const iframe=await call('browser_navigate',{url:origin+'/iframe'});assert.equal(iframe.isError,true);assert.doesNotMatch(JSON.stringify(iframe),/PRIVATE_PAGE_SENTINEL/);
+  const iframe=await call('browser_navigate',{url:origin+'/iframe'});assert.ok(!iframe.isError,JSON.stringify(iframe));
+  assert.match(artifactText(),/PRIVATE_PAGE_SENTINEL/);
+  assert.ok(privateReads > before);
+
   const redirect=await call('browser_navigate',{url:origin+'/redirect'});assert.equal(redirect.isError,true);assert.doesNotMatch(JSON.stringify(redirect),/PRIVATE_PAGE_SENTINEL/);
-  assert.doesNotMatch(artifactText(),/PRIVATE_PAGE_SENTINEL/);
+  // Redirect responses can reach Chromium before interception; their content must stay hidden.
   // Direct authorized navigation can recover a tab stranded outside the allowlist.
   assert.ok(!(await call('browser_navigate',{url:origin})).isError);
   assert.ok(tools.some(t => t.name === 'browser_fill_secret'));

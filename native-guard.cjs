@@ -37,9 +37,17 @@ class NativeGuard {
     if (['', 'about:blank', 'about:srcdoc'].includes(url)) return frame.parentFrame() ? this.frameOrigin(frame.parentFrame()) : null;
     return originOf(url, this.port);
   }
+  pageOrigin(page) {
+    return this.frameOrigin(page.mainFrame());
+  }
+  pageAllowed(page, policy) {
+    const origin = this.pageOrigin(page);
+    return !origin || policy.origins.includes(origin);
+  }
   async checkPage(page, wait = false, signal) {
     let policy = await this.policy();
-    const origins = [...new Set(page.frames().map(f => this.frameOrigin(f)).filter(Boolean))];
+    // Site approval covers the displayed page, including its embedded content.
+    const origins = [this.pageOrigin(page)].filter(Boolean);
     for (const origin of origins) {
       if (!policy.origins.includes(origin)) policy = await this.need(origin, this.scope?.tool || 'browser_snapshot', wait, signal);
     }
@@ -62,7 +70,7 @@ class NativeGuard {
     if (page.keyboard) this.wrapOperations(page.keyboard, page, ['press', 'type', 'insertText', 'down', 'up']);
     page.on('framenavigated', frame => {
       const scope = this.scope;
-      if (!scope || !scope.pages.has(page)) return;
+      if (!scope || !scope.pages.has(page) || frame.parentFrame()) return;
       try {const o = this.frameOrigin(frame); if (o && !scope.allowed.has(o)) scope.breach = true;}
       catch {scope.breach = true;}
     });
@@ -81,11 +89,11 @@ class NativeGuard {
   async header(tab, original) {
     try {
       const p = await this.policy();
-      if (tab.page.frames().some(f => {const o = this.frameOrigin(f); return o && !p.origins.includes(o);})) throw new PolicyError('RESTRICTED_TAB');
+      if (!this.pageAllowed(tab.page, p)) throw new PolicyError('RESTRICTED_TAB');
       if (this.scope) {this.scope.pages.add(tab.page); this.scope.allowed = new Set(p.origins);}
       const result = await original();
       const latest = await this.policy();
-      if (tab.page.frames().some(f => {const o = this.frameOrigin(f); return o && !latest.origins.includes(o);})) throw new PolicyError('RESTRICTED_TAB');
+      if (!this.pageAllowed(tab.page, latest)) throw new PolicyError('RESTRICTED_TAB');
       if (this.scope?.breach) throw new PolicyError('PAGE_SCOPE_CHANGED');
       return result;
     }
@@ -112,18 +120,21 @@ class NativeGuard {
     await raw.route('**/*', async route => {
       const req = route.request();
       if (!req.isNavigationRequest()) {await route.continue().catch(() => {}); return;}
+      const embedded = !!req.frame().parentFrame();
       try {
-        const origin = originOf(req.url(), this.port);
+        // Keep special schemes and the management origin blocked in all frames.
+        const destination = originOf(req.url(), this.port);
+        const origin = embedded ? this.pageOrigin(req.frame().page()) : destination;
         const p = await this.policy();
         if (!p.origins.includes(origin)) {
           const tool = this.scope?.tool || 'browser_navigate';
           await this.call('/runtime/request', {session: this.session, origin, tool, requestId: this.scope?.requestId});
           await this.audit('navigation.blocked', {origin, tool});
-          if (this.scope) this.scope.breach = true;
+          if (this.scope && !embedded) this.scope.breach = true;
           await route.abort('blockedbyclient'); return;
         }
         await route.continue();
-      } catch {if (this.scope) this.scope.breach = true; await route.abort('blockedbyclient').catch(() => {});}
+      } catch {if (this.scope && !embedded) this.scope.breach = true; await route.abort('blockedbyclient').catch(() => {});}
     });
   }
   startViewer(backend) {
@@ -234,7 +245,7 @@ class NativeGuard {
         for (const [i, tab] of context.tabs().entries()) {
           try {
             const p = await this.policy();
-            if (tab.page.frames().some(f => {const o = this.frameOrigin(f); return o && !p.origins.includes(o);})) throw new PolicyError('RESTRICTED_TAB');
+            if (!this.pageAllowed(tab.page, p)) throw new PolicyError('RESTRICTED_TAB');
             lines.push(`${i}: ${tab.page.url() === 'about:blank' ? 'about:blank' : originOf(tab.page.url(), this.port)}`);
           }
           catch {lines.push(`${i}: [Restricted tab]`);}
