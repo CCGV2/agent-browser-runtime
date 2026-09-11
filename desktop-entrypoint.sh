@@ -37,6 +37,7 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
+node /opt/agent-browser/desktop-config.cjs
 DISPLAY=:99 openbox-session >>/data/logs/openbox.log 2>&1 &
 WM_PID=$!
 

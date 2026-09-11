@@ -15,7 +15,7 @@ const pool = new SessionPool(key => {
   const directory = path.join(process.env.AGENT_BROWSER_ARTIFACT_DIR || '/data/artifacts', createHash('sha256').update(key).digest('hex'));
   fs.mkdirSync(directory, {recursive: true});
   const child = spawn(process.execPath, [
-    process.env.AGENT_BROWSER_MCP_CLI || '/opt/agent-browser/node_modules/@playwright/mcp/cli.js',
+    process.env.AGENT_BROWSER_MCP_CLI || path.join(__dirname, 'docker-focus.cjs'),
     '--browser', 'chromium', '--sandbox', '--isolated',
     '--output-dir', directory, '--timeout-action', '10000',
     '--timeout-navigation', '90000', '--viewport-size', '1440x900',

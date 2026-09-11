@@ -215,3 +215,13 @@ Site approvals follow the top-level page origin. Embedded frames and API/resourc
 requests belong to that page; they do not need separate grants. New top-level
 origins (including redirects, popups and other tabs) still require approval.
 Approving a page includes reading and interacting with its embedded content.
+
+## Automatic Docker window follow
+
+The desktop uses one Openbox workspace and maximized Chromium windows. Each
+MCP browser operation brings the worker's current page forward before and
+after execution, including tab changes. This is a shared desktop: concurrent
+agents follow the latest operation, not a selected PAX session. The exact
+Playwright bundle is checked before installing the in-memory focus adapter.
+Rebuild/restart the Docker runtime and reconnect MCP to enable this behavior.
+Native Chrome uses its existing activity audit; paxd needs no update.

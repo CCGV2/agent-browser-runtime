@@ -14,7 +14,7 @@ sh -n \
   "$ROOT/playwright-mcp-wrapper.sh" \
   "$ROOT/playwright-mcp-native-wrapper.sh"
 
-for source_file in "$ROOT"/native-*.cjs "$ROOT/control-ui/app.js"; do
+for source_file in "$ROOT"/native-*.cjs "$ROOT"/docker-focus.cjs "$ROOT"/desktop-config.cjs "$ROOT/control-ui/app.js"; do
   node --check "$source_file"
 done
 
