@@ -10,12 +10,13 @@ class ViewerStore {
     // An absent worker never silently hands control back to the agent.
     for (const [id, job] of this.pending) if (job.expires <= now) {this.pending.delete(id); job.resolve({error:'Viewer operation timed out; inspect before retrying'});}
   }
-  poll(session) {
+  poll(session, busy = false) {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(session || '')) throw Error('Invalid browser session');
     this.sweep(); this.workers.set(session, {session, seen:Date.now()});
+    if (busy) return {};
     const job = [...this.pending.values()].find(p => p.session === session && !p.sent);
     if (!job) return {};
-    job.sent = true; return {id:job.id, action:job.action};
+    job.sent = true; return {id:job.id, action:job.action, expiresAt:job.expires};
   }
   finish({session, id, result}) {
     const job = this.pending.get(id);
@@ -30,7 +31,7 @@ class ViewerStore {
     }
     if (!this.workers.has(session)) throw Error('Browser worker is not connected');
     if (action?.type === 'takeover') {if (this.owner && this.owner !== session) throw Error('Another session has control'); this.setOwner(session); return {ok:true};}
-    if (this.owner !== session) throw Error('Take control before viewing or interacting');
+    if (action?.type !== 'screenshot' && this.owner !== session) throw Error('Take control before interacting');
     if (!['screenshot','click','key','scroll','text'].includes(action?.type)) throw Error('Unsupported viewer action');
     if (this.pending.size >= 2) throw Error('Viewer is busy');
     const id = crypto.randomUUID();

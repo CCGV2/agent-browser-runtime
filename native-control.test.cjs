@@ -72,3 +72,18 @@ test('HTTP separates runtime/admin, rejects cross-origin and replays, and pairin
   assert.equal((await send(s.port,'/admin/logout',login.body.token,{})).status,200);
   assert.equal((await send(s.port,'/admin/state',login.body.token)).status,401);
 });
+
+test('busy viewer polls renew worker presence without consuming another job', async t => {
+  const {viewer} = fixture(t);
+  viewer.poll('alpha');
+  const waiting = viewer.request({session:'alpha', action:{type:'screenshot'}});
+  viewer.workers.get('alpha').seen = 0;
+  assert.deepEqual(viewer.poll('alpha',true),{});
+  assert.ok(viewer.workers.get('alpha').seen > 0);
+  assert.equal([...viewer.pending.values()][0].sent,false);
+  const job=viewer.poll('alpha');
+  assert.ok(job.expiresAt > Date.now());
+  viewer.finish({session:'alpha',id:job.id,result:{image:'fixture'}});
+  assert.deepEqual(await waiting,{image:'fixture'});
+  assert.equal(viewer.owner,null);
+});

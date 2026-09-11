@@ -92,3 +92,46 @@ test('blocked and opaque child frames cannot poison an approved page snapshot',a
   const result=await h.guard.run(h.backend,'browser_snapshot',{});
   assert.ok(!result.isError,JSON.stringify(result));assert.equal(h.requested,0);
 });
+
+test('operator preview leaves agent active and never grants input capability', async () => {
+  const h = harness({origins:['https://allowed.test'], approve:false});
+  h.page.screenshot = async () => Buffer.from('jpeg-fixture');
+  h.page.evaluate = async () => ({width:800,height:600});
+  const preview = await h.guard.operatorAction(h.backend, {type:'screenshot'});
+  assert.ok(preview.image); assert.equal(preview.frame, '');
+  assert.equal(h.guard.viewerFrame, null);
+  assert.ok(!(await h.guard.run(h.backend,'browser_snapshot',{})).isError);
+  assert.ok((await h.guard.operatorAction(h.backend,{type:'key',key:'Tab',frame:preview.frame})).error);
+  h.policy.origins=[];
+  assert.ok((await h.guard.operatorAction(h.backend,{type:'screenshot'})).error);
+  h.policy.origins=['https://allowed.test']; h.policy.paused=true;
+  assert.ok((await h.guard.operatorAction(h.backend,{type:'screenshot'})).error);
+});
+
+test('viewer keeps heartbeats alive and discards a job that expires behind an agent action', {timeout:5000}, async t => {
+  let release;
+  let polls = 0;
+  let busyPolls = 0;
+  let captures = 0;
+  let result;
+  const guard = new NativeGuard({session:'waiting', call:async (route, body) => {
+    if (route === '/runtime/view-poll') {
+      polls++;
+      if (body.busy) busyPolls++;
+      return polls === 1 ? {id:'expired', action:{type:'screenshot'}, expiresAt:Date.now()-1} : {};
+    }
+    if (route === '/runtime/view-result') {result=body.result;return {};}
+    throw Error('Unexpected call');
+  }});
+  guard.tail = new Promise(resolve => {release=resolve;});
+  guard.operatorAction = async () => {captures++;return {};};
+  t.after(() => {clearInterval(guard.viewerTimer);release();});
+  guard.startViewer({});
+  const until = async fn => {while(!fn()) await new Promise(resolve => setTimeout(resolve,20));};
+  await until(() => busyPolls >= 2);
+  assert.equal(captures,0);
+  release();
+  await until(() => result);
+  assert.match(result.error,/Browser was busy/);
+  assert.equal(captures,0);
+});

@@ -163,3 +163,17 @@ That route is not exposed by the Pax bridge or listed as an MCP tool.
 
 No production Manager, Console, daemon or installed MCP worker is updated merely
 by changing this source tree. The rollout above is required.
+
+Native Chrome Watch browser is a read-only preview available without takeover.
+Selecting a worker starts sequential refreshes with a two-second delay between
+requests. Hidden pages suspend capture; closing the panel stops polling.
+Preview failures retry after five seconds and preserve the last valid frame,
+with the error and last-capture time shown beside the viewer. Browser inventory
+refreshes automatically. Captures are serialized; input is never replayed.
+Runtime heartbeats continue while capture waits for an agent operation, and
+expired queued operations are discarded before execution.
+A single connected worker is selected automatically; multiple workers require
+selection unless a current operator already identifies the worker. It retains page approval checks and the global pause switch;
+it neither changes operator ownership nor releases sensitive observation holds.
+Preview pixels remain transient. Clicking or typing still requires explicit
+takeover and a fresh interaction frame captured during takeover.

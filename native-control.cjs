@@ -171,7 +171,7 @@ function createControlServer(store) {
         const b = await readBody(req); store.audit('viewer.action', {session:b.session, tool:b.action?.type});
         return reply(200, await store.viewer.request(b));
       }
-      if (route === '/runtime/view-poll' && req.method === 'POST') return reply(200, store.viewer.poll((await readBody(req)).session));
+      if (route === '/runtime/view-poll' && req.method === 'POST') {const b = await readBody(req); return reply(200, store.viewer.poll(b.session, b.busy === true));}
       if (route === '/runtime/view-result' && req.method === 'POST') {store.viewer.finish(await readBody(req, 1024 * 1024)); return reply(200, {ok:true});}
       if (route === '/admin/secret' && req.method === 'POST') {
         const b = await readBody(req); b.origin = normalizeOrigin(b.origin, store.port);

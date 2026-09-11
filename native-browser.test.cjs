@@ -76,6 +76,19 @@ test('real MCP: approval, page origins, embedded content, no replay, revocation 
   assert.ok(tools.some(t => t.name === 'browser_fill_secret'));
   const liveSession = store.auditTail().find(e => e.event === 'tool.started').session;
   await until(() => store.viewer.workers.has(liveSession));
+  const preview = await store.viewer.request({session:liveSession,action:{type:'screenshot'}});
+  assert.ok(preview.image, JSON.stringify(preview));
+  assert.equal(preview.frame, '');
+  assert.equal(store.viewer.owner, null);
+  assert.ok(!(await call('browser_snapshot')).isError);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(!(await call('browser_snapshot')).isError);
+    const next = await store.viewer.request({session:liveSession,action:{type:'screenshot'}});
+    assert.ok(next.image, JSON.stringify(next));
+    assert.equal(next.frame, '');
+    assert.equal(store.viewer.owner, null);
+  }
+  await assert.rejects(store.viewer.request({session:liveSession,action:{type:'key',key:'Tab',frame:preview.frame}}), /Take control/);
   await store.viewer.request({session:liveSession,action:{type:'takeover'}});
   assert.equal((await call('browser_snapshot')).isError,true);
   const remoteFrame = await store.viewer.request({session:liveSession,action:{type:'screenshot'}});

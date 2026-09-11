@@ -140,15 +140,24 @@ class NativeGuard {
   startViewer(backend) {
     if (this.viewerTimer) return;
     let polling = false;
+    let busy = false;
     this.viewerTimer = setInterval(async () => {
       if (polling) return;
       polling = true;
       try {
-        const job = await this.call('/runtime/view-poll', {session:this.session});
-        if (job.id) {
-          const work = this.tail.then(() => this.operatorAction(backend, job.action));
+        // Heartbeats must continue while an agent action delays the capture.
+        const job = await this.call('/runtime/view-poll', {session:this.session, busy});
+        if (job.id && !busy) {
+          busy = true;
+          const work = this.tail.then(() => {
+            if (job.expiresAt && Date.now() >= job.expiresAt)
+              return {error:'Browser was busy; waiting for the next live image'};
+            return this.operatorAction(backend, job.action);
+          });
           this.tail = work.catch(() => {});
-          await this.call('/runtime/view-result', {session:this.session, id:job.id, result:await work});
+          void work.then(result => this.call('/runtime/view-result', {
+            session:this.session, id:job.id, result,
+          })).catch(() => {}).finally(() => {busy = false;});
         }
       } catch {} finally {polling = false;}
     }, 300);
@@ -158,7 +167,7 @@ class NativeGuard {
     this.inOperator = true;
     try {
       const policy = await this.policy();
-      if (policy.operator !== this.session) throw Error('No takeover');
+      if (action.type !== 'screenshot' && policy.operator !== this.session) throw Error('No takeover');
       const tab = await backend._context.ensureTab(); const page = tab.page;
       await this.checkPage(page);
       const url = page.url();
@@ -167,8 +176,10 @@ class NativeGuard {
         await this.checkPage(page);
         if (page.url() !== url || bytes.length > 600_000) throw Error('Frame invalid');
         const size = await page.evaluate(() => ({width:innerWidth, height:innerHeight}));
-        this.viewerFrame = {id:crypto.randomUUID(), page, url, size, expires:Date.now()+5000};
-        return {frame:this.viewerFrame.id, image:bytes.toString('base64'), ...size};
+        const latest = await this.checkPage(page);
+        this.viewerFrame = latest.operator === this.session
+          ? {id:crypto.randomUUID(), page, url, size, expires:Date.now()+5000} : null;
+        return {frame:this.viewerFrame?.id || '', image:bytes.toString('base64'), ...size};
       }
       const frame = this.viewerFrame; this.viewerFrame = null;
       if (!frame || frame.id !== action.frame || frame.page !== page || frame.url !== url || frame.expires < Date.now()) throw Error('Stale frame');
@@ -187,7 +198,7 @@ class NativeGuard {
       } else throw Error('Action invalid');
       await this.checkPage(page);
       return {ok:true};
-    } catch {return {error:'Viewer action failed or frame changed; refresh before retrying'};}
+    } catch (error) {return {error:error instanceof PolicyError ? error.code : 'Browser image unavailable or page changed; waiting for the next live image'};}
     finally {this.inOperator = false;}
   }
   async fillSecret(context, args, signal) {
