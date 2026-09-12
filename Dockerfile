@@ -30,7 +30,8 @@ RUN npm ci --omit=dev \
     && chown -R node:node /opt/agent-browser /ms-playwright /data /home/node/.cache
 
 COPY --chown=root:root desktop-entrypoint.sh playwright-mcp-wrapper.sh /usr/local/bin/
-RUN chmod 0755 /usr/local/bin/desktop-entrypoint.sh /usr/local/bin/playwright-mcp-wrapper.sh
+RUN chmod 0755 /usr/local/bin/desktop-entrypoint.sh /usr/local/bin/playwright-mcp-wrapper.sh \
+    && chmod 0644 /opt/agent-browser/*.cjs /opt/agent-browser/package*.json
 
 USER node
 WORKDIR /opt/agent-browser
