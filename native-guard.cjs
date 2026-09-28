@@ -153,8 +153,16 @@ class NativeGuard {
       polling = true;
       try {
         // Heartbeats must continue while an agent action delays the capture.
-        const job = await this.call('/runtime/view-poll', {session:this.session, busy});
+        const pageOpen = backend._context?.tabs().some(tab => !tab.page.isClosed());
+        const job = await this.call('/runtime/view-poll', {session:this.session, busy, pageOpen});
         if (job.id && !busy) {
+          // A preview must not hold the control tunnel while the agent waits
+          // for a site approval delivered over that same tunnel.
+          if (this.scope && ['screenshot', 'tabs'].includes(job.action?.type)) {
+            await this.call('/runtime/view-result', {session:this.session, id:job.id,
+              result:{error:'Browser was busy; waiting for the next live image'}});
+            return;
+          }
           busy = true;
           const work = this.tail.then(() => {
             if (job.expiresAt && Date.now() >= job.expiresAt)
@@ -196,9 +204,11 @@ class NativeGuard {
       const policy = await this.policy();
       if (!['screenshot','tabs'].includes(action.type) && policy.operator !== this.session) throw Error('No takeover');
       if (action.type === 'tabs') return await this.operatorTabs(backend._context);
+      // Observation must never create a replacement window after browser_close.
+      const openTabs = backend._context.tabs().filter(tab => !tab.page.isClosed());
       const tab = action.tabID
-        ? backend._context.tabs().find(tab => !tab.page.isClosed() && this.viewerTabID(tab.page) === action.tabID)
-        : await backend._context.ensureTab();
+        ? openTabs.find(tab => this.viewerTabID(tab.page) === action.tabID)
+        : openTabs.find(tab => tab.isCurrentTab()) || openTabs[0];
       if (!tab) throw new PolicyError('VIEWER_TAB_CLOSED');
       const page = tab.page;
       await this.checkPage(page);

@@ -87,3 +87,13 @@ test('busy viewer polls renew worker presence without consuming another job', as
   assert.deepEqual(await waiting,{image:'fixture'});
   assert.equal(viewer.owner,null);
 });
+
+test('worker heartbeats distinguish a closed browser from a disconnected worker', t => {
+  const {viewer} = fixture(t);
+  viewer.poll('alpha', false, false);
+  assert.equal(viewer.workers.get('alpha').pageOpen, false);
+  viewer.poll('alpha', false, true);
+  assert.equal(viewer.workers.get('alpha').pageOpen, true);
+  viewer.poll('legacy');
+  assert.equal(viewer.workers.get('legacy').pageOpen, undefined);
+});

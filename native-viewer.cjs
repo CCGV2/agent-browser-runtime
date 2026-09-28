@@ -10,9 +10,9 @@ class ViewerStore {
     // An absent worker never silently hands control back to the agent.
     for (const [id, job] of this.pending) if (job.expires <= now) {this.pending.delete(id); job.resolve({error:'Viewer operation timed out; inspect before retrying'});}
   }
-  poll(session, busy = false) {
+  poll(session, busy = false, pageOpen) {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(session || '')) throw Error('Invalid browser session');
-    this.sweep(); this.workers.set(session, {session, seen:Date.now()});
+    this.sweep(); this.workers.set(session, {session, seen:Date.now(), ...(typeof pageOpen === 'boolean' ? {pageOpen} : {})});
     if (busy) return {};
     const job = [...this.pending.values()].find(p => p.session === session && !p.sent);
     if (!job) return {};
