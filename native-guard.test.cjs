@@ -108,6 +108,17 @@ test('operator preview leaves agent active and never grants input capability', a
   assert.ok((await h.guard.operatorAction(h.backend,{type:'screenshot'})).error);
 });
 
+test('preview reports a closed window without reopening it, and resumes for a new tab', async () => {
+  const h = harness({origins:['https://allowed.test'], approve:false});
+  h.backend._context.ensureTab = async () => {throw Error('Preview must not reopen the browser');};
+  h.backend._context.tabs = () => [];
+  assert.deepEqual(await h.guard.operatorAction(h.backend, {type:'screenshot'}), {error:'VIEWER_TAB_CLOSED'});
+  h.backend._context.tabs = () => [{page:h.page, isCurrentTab:()=>true}];
+  h.page.screenshot = async () => Buffer.from('new-window');
+  h.page.evaluate = async () => ({width:800,height:600});
+  assert.ok((await h.guard.operatorAction(h.backend, {type:'screenshot'})).image);
+});
+
 test('viewer keeps heartbeats alive and discards a job that expires behind an agent action', {timeout:5000}, async t => {
   let release;
   let polls = 0;
@@ -134,6 +145,32 @@ test('viewer keeps heartbeats alive and discards a job that expires behind an ag
   await until(() => result);
   assert.match(result.error,/Browser was busy/);
   assert.equal(captures,0);
+});
+
+test('preview returns busy without waiting for an agent approval on the control tunnel', {timeout:3000}, async t => {
+  for (const type of ['screenshot', 'tabs']) {
+    let result;
+    let offered = false;
+    const guard = new NativeGuard({session:'approval', call:async (route, body) => {
+      if (route === '/runtime/view-poll') {
+        if (offered) return {};
+        offered = true;
+        return {id:'preview', action:{type}, expiresAt:Date.now()+7000};
+      }
+      if (route === '/runtime/view-result') {result=body.result;return {};}
+      throw Error('Unexpected call');
+    }});
+    guard.scope = {tool:'browser_navigate'};
+    const waitingForApproval = new Promise(() => {});
+    guard.tail = waitingForApproval;
+    guard.operatorAction = async () => {throw Error('Must not capture during approval');};
+    t.after(() => clearInterval(guard.viewerTimer));
+    guard.startViewer({});
+    while (!result) await new Promise(resolve => setTimeout(resolve,20));
+    assert.match(result.error,/Browser was busy/);
+    assert.equal(guard.tail,waitingForApproval);
+    clearInterval(guard.viewerTimer);
+  }
 });
 
 test('viewer tab selection does not change the agent tab and hides restricted titles', async () => {
