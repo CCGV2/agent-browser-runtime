@@ -1,8 +1,10 @@
 const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const {request} = require('./native-control-client.cjs');
 const {normalizeOrigin, PORT} = require('./native-control.cjs');
 
-const TOOLS = new Set(['browser_fill_secret', 'browser_navigate', 'browser_snapshot', 'browser_find', 'browser_click', 'browser_fill_form', 'browser_type', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_close']);
+const TOOLS = new Set(['browser_fill_secret', 'browser_navigate', 'browser_snapshot', 'browser_find', 'browser_click', 'browser_fill_form', 'browser_file_upload', 'browser_type', 'browser_press_key', 'browser_select_option', 'browser_hover', 'browser_tabs', 'browser_wait_for', 'browser_take_screenshot', 'browser_close']);
 class PolicyError extends Error { constructor(code) {super(code); this.code = code;} }
 function originOf(url, port) {
   try {const u = new URL(url); return normalizeOrigin(u.origin, port);} catch {throw new PolicyError('UNSUPPORTED_OR_MANAGEMENT_ORIGIN');}
@@ -68,6 +70,7 @@ class NativeGuard {
     this.pages.add(page);
     this.wrapOperations(page, page, ['screenshot']);
     if (page.keyboard) this.wrapOperations(page.keyboard, page, ['press', 'type', 'insertText', 'down', 'up']);
+    page.on('filechooser', chooser => this.wrapOperations(chooser, page, ['setFiles']));
     page.on('framenavigated', frame => {
       const scope = this.scope;
       if (!scope || !scope.pages.has(page) || frame.parentFrame()) return;
@@ -270,6 +273,29 @@ class NativeGuard {
     } catch {throw new PolicyError('SECRET_FILL_FAILED; reference is not reusable; operator must inspect before resuming');}
     finally {this.fillingSecret = false; if (credential) credential.value = undefined;}
   }
+  async uploadArguments(context, args) {
+    // Missing paths cancels the chooser; an empty list clears its selection.
+    if (args.paths === undefined) return {args, fileCount:0, totalBytes:0};
+    if (!Array.isArray(args.paths) || args.paths.some(p => typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')))
+      throw new PolicyError('UPLOAD_REQUIRES_ABSOLUTE_FILE_PATHS');
+    const paths = [];
+    let totalBytes = 0;
+    for (const filename of args.paths) {
+      let resolved;
+      try {resolved = await fs.realpath(filename);}
+      catch {throw new PolicyError('UPLOAD_FILE_NOT_READABLE');}
+      // Check the actual target, not a symlink inside an allowed directory.
+      try {await context.workspaceFile(resolved);}
+      catch {throw new PolicyError('UPLOAD_FILE_OUTSIDE_ALLOWED_ROOTS');}
+      let info;
+      try {info = await fs.stat(resolved);}
+      catch {throw new PolicyError('UPLOAD_FILE_NOT_READABLE');}
+      if (!info.isFile()) throw new PolicyError('UPLOAD_REQUIRES_REGULAR_FILES');
+      paths.push(resolved);
+      totalBytes += info.size;
+    }
+    return {args:{...args, paths}, fileCount:paths.length, totalBytes};
+  }
   run(backend, tool, args, signal) {
     // MCP clients may pipeline requests. Approval and browser selection are serialized.
     this.startViewer(backend);
@@ -278,7 +304,7 @@ class NativeGuard {
   }
   async execute(backend, tool, args, signal) {
     const requestId = crypto.randomUUID(); const start = Date.now();
-    let outcome = 'denied'; let origin; let result;
+    let outcome = 'denied'; let origin; let result; let upload = {};
     this.scope = {tool, requestId, pages: new Set(), allowed: new Set(), breach: false};
     try {
       await this.audit('tool.started', {requestId, tool});
@@ -314,6 +340,12 @@ class NativeGuard {
         await this.checkPage(target.page, true, signal);
         if (target.page.url() !== 'about:blank') origin = originOf(target.page.url(), this.port);
       }
+      if (tool === 'browser_file_upload') {
+        const prepared = await this.uploadArguments(context, args);
+        args = prepared.args;
+        upload = {fileCount:prepared.fileCount, totalBytes:prepared.totalBytes};
+        await this.audit('upload.prepared', {requestId, origin, ...upload});
+      }
       if (!result) {
         if (signal?.aborted) throw new PolicyError('REQUEST_CANCELLED');
         outcome = 'started';
@@ -329,7 +361,7 @@ class NativeGuard {
     } finally {
       this.scope = null;
     }
-    try {await this.audit('tool.finished', {requestId, tool, origin, outcome, durationMs: Date.now() - start});}
+    try {await this.audit('tool.finished', {requestId, tool, origin, outcome, durationMs: Date.now() - start, ...upload});}
     catch {return errorResult('AUDIT_UNAVAILABLE; completion may be uncertain; do not replay automatically');}
     return result;
   }

@@ -10,6 +10,7 @@ enabled_tools = [
   "browser_find",
   "browser_click",
   "browser_fill_form",
+  "browser_file_upload",
   "browser_type",
   "browser_press_key",
   "browser_select_option",

@@ -14,16 +14,29 @@ async function listen(server) {await new Promise((resolve,reject)=>{server.once(
 async function until(fn, timeout = 30_000) {const end=Date.now()+timeout; while(Date.now()<end){const r=fn();if(r)return r;await new Promise(r=>setTimeout(r,50));} throw Error('Condition timed out');}
 test('real MCP: approval, page origins, embedded content, no replay, revocation and auditing', {timeout:150_000,skip:!process.env.AGENT_BROWSER_TEST_EXECUTABLE}, async t => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-browser-e2e-'));
+  const workspace=fs.realpathSync(fs.mkdtempSync(path.join(dir,'workspace-')));
+  const uploadContents=[Buffer.from('single-upload-'+crypto.randomBytes(16).toString('hex')),Buffer.from([0,1,2,255,128,17])];
+  const uploadPaths=uploadContents.map((contents,index)=>{
+    const filename=path.join(workspace,`attachment-${index}.bin`);
+    fs.writeFileSync(filename,contents,{mode:0o600});return filename;
+  });
+  const outsideUpload=path.join(fs.realpathSync(dir),'outside-workspace.txt');
+  fs.writeFileSync(outsideUpload,'OUTSIDE_UPLOAD_SENTINEL',{mode:0o600});
+  const uploads=[];
   let privateReads=0; let blockedTopReads=0;
   const canary = crypto.randomBytes(32).toString('hex'); let passwordMatched = false;
   const privateSite=http.createServer((req,res)=>{privateReads++;if(req.url === '/blocked-top') blockedTopReads++;res.end('<h1>PRIVATE_PAGE_SENTINEL</h1>');});
   const privatePort=await listen(privateSite); const privateOrigin=`http://127.0.0.1:${privatePort}`;
   const site=http.createServer((req,res)=>{
     res.setHeader('Content-Type','text/html');
+    if(req.url==='/upload' && req.method === 'POST') {
+      const chunks=[];req.on('data',chunk=>chunks.push(chunk));
+      req.on('end',()=>{uploads.push({contentType:req.headers['content-type'],body:Buffer.concat(chunks)});res.end('ok');});return;
+    }
     if(req.url==='/check' && req.method === 'POST') {let body=''; req.on('data', d => body += d); req.on('end', () => {passwordMatched = body === canary; body=''; res.end('ok');}); return;}
     if(req.url==='/iframe') return res.end(`<h1>Allowed frame host</h1><iframe src="${privateOrigin}/"></iframe>`);
     if(req.url==='/redirect'){res.writeHead(302,{Location:privateOrigin+'/blocked-top'});return res.end();}
-    res.end(`<h1>Allowed fixture</h1><input id="password" type="password" oninput="fetch('/check', {method:'POST',body:this.value})"><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}/blocked-top">Leave</a>`);
+    res.end(`<h1>Allowed fixture</h1><input id="password" type="password" oninput="fetch('/check', {method:'POST',body:this.value})"><button id="count" onclick="this.textContent='Clicked once'">Count</button><a id="leave" href="${privateOrigin}/blocked-top">Leave</a><button id="upload" onclick="document.getElementById('files').click()">Upload</button><input id="files" type="file" multiple hidden onchange="const data=new FormData();for(const file of this.files)data.append('files',file);fetch('/upload',{method:'POST',body:data})">`);
   });
   const sitePort=await listen(site); const origin=`http://127.0.0.1:${sitePort}`;
   const store=new ControlStore(dir); const control=createControlServer(store); store.port=await listen(control);
@@ -32,7 +45,7 @@ test('real MCP: approval, page origins, embedded content, no replay, revocation 
   store.loginCodes.set('fixture-operator-code',Date.now()+60_000);
   await operatorPage.goto(`http://127.0.0.1:${store.port}/#code=fixture-operator-code`);
   await operatorPage.locator('#dashboard').waitFor({state:'visible'});
-  const child=spawn(process.execPath,[path.join(__dirname,'native-worker.cjs')],{env:{...process.env,AGENT_BROWSER_NATIVE_DATA_DIR:dir,AGENT_BROWSER_CONTROL_PORT:String(store.port)},stdio:['pipe','pipe','pipe']});
+  const child=spawn(process.execPath,[path.join(__dirname,'native-worker.cjs')],{cwd:workspace,env:{...process.env,AGENT_BROWSER_NATIVE_DATA_DIR:dir,AGENT_BROWSER_CONTROL_PORT:String(store.port)},stdio:['pipe','pipe','pipe']});
   let stderr='';child.stderr.on('data',d=>stderr+=d);
   t.after(async()=>{
     child.stdin.end();child.kill('SIGTERM');
@@ -48,6 +61,7 @@ test('real MCP: approval, page origins, embedded content, no replay, revocation 
   child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
   const tools=(await rpc('tools/list',{})).result.tools;
   assert.ok(tools.some(t=>t.name==='browser_snapshot'));
+  assert.ok(tools.some(t=>t.name==='browser_file_upload'));
   assert.ok(!tools.some(t=>t.name==='browser_evaluate'));
   const navigation=call('browser_navigate',{url:origin});
   const approval=await until(()=>[...store.pending.values()].find(p=>p.origin===origin));
@@ -61,6 +75,33 @@ test('real MCP: approval, page origins, embedded content, no replay, revocation 
   const clicked=await call('browser_click',{target:'#count'});assert.ok(!clicked.isError,JSON.stringify(clicked));assert.match(artifactText(),/Clicked once/);
   const screenshot=await call('browser_take_screenshot',{});assert.ok(!screenshot.isError,JSON.stringify(screenshot));
   assert.equal((await call('browser_evaluate',{expression:'document.title'})).isError,true);
+  // The fixture automatically posts selected files, proving actual bytes reach
+  // the authorized site rather than only exercising the chooser/tool schema.
+  assert.equal((await call('browser_file_upload',{paths:[uploadPaths[0]]})).isError,true);
+  const openUpload=async()=>assert.ok(!(await call('browser_click',{target:'#upload'})).isError);
+  await openUpload();
+  for (const paths of [[path.join(workspace,'missing.bin')],[workspace],[outsideUpload],[uploadPaths[0],path.join(workspace,'missing.bin')]]) {
+    assert.equal((await call('browser_file_upload',{paths})).isError,true);
+    assert.equal(uploads.length,0);
+  }
+  const singleUpload=await call('browser_file_upload',{paths:[uploadPaths[0]]});
+  assert.ok(!singleUpload.isError,JSON.stringify(singleUpload));
+  await until(()=>uploads.length===1);
+  assert.match(uploads[0].contentType,/^multipart\/form-data; boundary=/);
+  assert.ok(uploads[0].body.includes(uploadContents[0]));
+  assert.ok(!uploads[0].body.includes(uploadContents[1]));
+  assert.match(uploads[0].body.toString(),/filename="attachment-0\.bin"/);
+  await openUpload();
+  const multipleUpload=await call('browser_file_upload',{paths:uploadPaths});
+  assert.ok(!multipleUpload.isError,JSON.stringify(multipleUpload));
+  await until(()=>uploads.length===2);
+  for(const contents of uploadContents) assert.ok(uploads[1].body.includes(contents));
+  assert.match(uploads[1].body.toString(),/filename="attachment-1\.bin"/);
+  await openUpload();
+  const cancelledUpload=await call('browser_file_upload');
+  assert.ok(!cancelledUpload.isError,JSON.stringify(cancelledUpload));
+  assert.equal((await call('browser_file_upload',{paths:[uploadPaths[0]]})).isError,true);
+  assert.equal(uploads.length,2);
   const before=privateReads;
   const leave=await call('browser_click',{target:'#leave'});
   assert.equal(leave.isError,true);assert.doesNotMatch(JSON.stringify(leave),/PRIVATE_PAGE_SENTINEL/);assert.equal(privateReads,before);assert.equal(blockedTopReads,0);

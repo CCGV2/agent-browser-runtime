@@ -51,7 +51,7 @@ class ControlStore {
   audit(event, fields = {}) {
     // Explicit schema: never log input text, screenshots, page titles, tokens or URL paths.
     const row = {at: new Date(this.now()).toISOString(), event};
-    for (const key of ['session', 'requestId', 'approvalId', 'tool', 'origin', 'decision', 'outcome', 'durationMs', 'revision', 'scope']) {
+    for (const key of ['session', 'requestId', 'approvalId', 'tool', 'origin', 'decision', 'outcome', 'durationMs', 'revision', 'scope', 'fileCount', 'totalBytes']) {
       if (typeof fields[key] === 'string') row[key] = fields[key].slice(0, 256);
       else if (typeof fields[key] === 'number' && Number.isFinite(fields[key])) row[key] = fields[key];
     }
@@ -215,7 +215,7 @@ function createControlServer(store) {
         const p = store.pending.get(url.searchParams.get('id')); return reply(200, {decision: p?.session === url.searchParams.get('session') ? p.decision : 'expired'});
       }
       if (route === '/runtime/audit' && req.method === 'POST') {
-        const b = await readBody(req); if (!['tool.started', 'tool.finished', 'navigation.blocked', 'download.cancelled'].includes(b.event)) throw Error('Invalid event');
+        const b = await readBody(req); if (!['tool.started', 'tool.finished', 'navigation.blocked', 'download.cancelled', 'upload.prepared'].includes(b.event)) throw Error('Invalid event');
         store.audit(b.event, b); return reply(200, {ok: true});
       }
       reply(404, {error: 'Not found'});

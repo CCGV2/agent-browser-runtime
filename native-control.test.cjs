@@ -32,6 +32,9 @@ test('empty deny, persistent global policy, expiring scoped grants and revocatio
 test('audit contains only whitelisted metadata, and corrupted policy fails closed', t => {
   const s = fixture(t);
   s.audit('tool.started', {tool:'browser_type',session:'alpha',text:'PASSWORD_SENTINEL',token:'TOKEN_SENTINEL',url:'https://example.com/?secret=SENTINEL'});
+  s.audit('upload.prepared', {session:'alpha',fileCount:2,totalBytes:10,paths:['FILE_PATH_SENTINEL'],content:'FILE_BODY_SENTINEL'});
+  assert.equal(s.auditTail()[0].fileCount,2);
+  assert.equal(s.auditTail()[0].totalBytes,10);
   assert.doesNotMatch(fs.readFileSync(s.auditFile,'utf8'), /SENTINEL/);
   fs.writeFileSync(s.policyFile,'{'); assert.throws(() => new ControlStore(s.dir));
   assert.equal(fs.statSync(s.auditFile).mode & 0o777, 0o600);
@@ -49,6 +52,9 @@ test('HTTP separates runtime/admin, rejects cross-origin and replays, and pairin
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const secret = name => fs.readFileSync(path.join(s.dir,'secrets',`control-${name}-token`),'utf8');
   const admin=secret('admin'), runtime=secret('runtime');
+  assert.equal((await send(s.port,'/runtime/audit',runtime,{event:'upload.prepared',session:'alpha',fileCount:1,totalBytes:5})).status,200);
+  assert.equal(s.auditTail()[0].fileCount,1);
+  assert.equal((await send(s.port,'/runtime/audit',runtime,{event:'arbitrary.event'})).status,400);
   assert.equal((await send(s.port,'/admin/policy',runtime,{origins:['https://github.com'],paused:false})).status,401);
   assert.equal((await send(s.port,'/runtime/policy?session=x',admin)).status,401);
   assert.equal((await send(s.port,'/admin/state',admin,undefined,{Origin:'https://evil.test'})).status,403);
