@@ -48,7 +48,32 @@ If an already executing click triggers a blocked navigation, the worker reports 
 - Removing a global site or editing global policy also clears temporary grants. Temporary grants can be revoked individually. Pause blocks subsequent operations. Policy checks fetch live state; no browser restart is required for these changes.
 - Global edits include a revision check so a stale management tab cannot silently restore a rule another operator removed.
 - For conservative iframe handling, every nonblank frame must have an allowed origin before the whole page can be read or operated. This may require granting embedded authentication origins, and unsupported opaque frame origins stop the operation. There is no iframe masking mode in this MVP.
-- The guarded tools are navigate, snapshot, find, click, fill/type/key/select/hover, tabs, wait, screenshot and close. Arbitrary JavaScript, filesystem output arguments, uploads, console/network export, downloads and history navigation are not exposed. Incidental browser downloads are cancelled when observed.
+- The guarded tools are navigate, snapshot, find, click, fill/type/key/select/hover, file upload, tabs, wait, screenshot and close. Arbitrary JavaScript, filesystem output arguments, console/network export, downloads and history navigation are not exposed. Incidental browser downloads are cancelled when observed.
+
+## File uploads
+
+`browser_file_upload` accepts `{paths: ["/absolute/path/to/file"]}` after the
+agent clicks a page's upload control and a file chooser is pending. Multiple
+paths are supported when the input accepts multiple files. Omitting `paths`
+cancels the chooser; an empty list clears the selection.
+
+Upload only the files the user has requested for the intended site. Site
+approval is not approval to choose arbitrary local files. The runtime validates
+absolute paths, resolves symbolic links, rejects missing files and directories,
+and retains the pinned upstream workspace/output-root restrictions. It does not
+enable unrestricted file access. Files must exist on the browser worker's host;
+a remote client's local path is not automatically transferred to that host.
+Stage user-provided attachments in the worker workspace when necessary.
+
+Policy is checked again immediately before the chooser receives files. Pause,
+revocation and human takeover still block uploading. Uploads may send bytes as
+soon as files are selected, before a separate form submission. Never replay an
+uncertain upload automatically; inspect the page first. This is ordinary file
+access governed by user instructions, not an operator-issued per-file grant or
+a sandbox against another process changing a file during an operation.
+
+Reinstall the native runtime and reconnect MCP after updating; clients with an
+`enabled_tools` allowlist must include `browser_file_upload`.
 
 ## Audit
 
@@ -58,7 +83,7 @@ Records are appended and fsynced by one service to:
 ~/.local/share/agent-browser-native/control/audit.jsonl
 ```
 
-The management page shows the last 200 records. Records include timestamps, worker session IDs, request IDs, tool names, origins, permission decisions, outcomes and duration. Policy changes, grants, revocations, management login and pairing are also recorded. Input bodies, page titles/content, screenshot bytes, URL paths/query strings and credentials are not included in the audit schema.
+The management page shows the last 200 records. Records include timestamps, worker session IDs, request IDs, tool names, origins, permission decisions, outcomes and duration. Upload preparation and completion also include file count and total bytes, without file contents or complete local paths. Policy changes, grants, revocations, management login and pairing are also recorded. Input bodies, page titles/content, screenshot bytes, URL paths/query strings and credentials are not included in the audit schema.
 
 The worker requires a successful start audit before executing. If completion logging fails, it returns an uncertain-completion error instead of reporting success. A missing completion record may mean crash/disconnection; do not infer the action did not execute. Logs are local append-only-by-convention files, not cryptographically tamper-proof storage. Retention/rotation and external archival are not implemented; monitor disk use.
 

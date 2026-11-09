@@ -51,6 +51,11 @@ The default profile and artifact directories live below `~/.local/share/agent-br
 
 ### macOS native Chrome extension mode
 
+Native mode supports user-requested file uploads through `browser_file_upload`.
+Click the website upload control first, then provide absolute paths to regular
+files on the worker host within its workspace/output roots. See
+[upload behavior and audit](docs/native-permissions-mvp.md#file-uploads).
+
 This mode requires Node.js 18 or newer, npm, Google Chrome, and no Docker. To connect to tabs in the user's regular Chrome profile, install the official [Playwright Extension](https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm), then run:
 
 ```bash

@@ -2,6 +2,8 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {EventEmitter} = require('node:events');
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {NativeGuard, TOOLS} = require('./native-guard.cjs');
 const {transform} = require('./native-playwright-hook.cjs');
 
@@ -34,6 +36,75 @@ test('revocation, pause, arbitrary tools and file output are enforced server-sid
   h.policy.paused=false;
   for(const [tool,args] of [['browser_evaluate',{expression:'1'}],['browser_snapshot',{filename:'/tmp/secret'}],['browser_click',{_meta:{cwd:'/tmp'}}]]) assert.equal((await h.guard.run(h.backend,tool,args)).isError,true);
   assert.equal(h.invoked,1);
+});
+
+function uploadFixture(t, options = {}) {
+  const h = harness({origins:['https://allowed.test'], approve:false, ...options});
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'native-upload-')));
+  t.after(() => fs.rmSync(root,{recursive:true,force:true}));
+  h.backend._context.workspaceFile = async filename => {
+    const relative = path.relative(root, filename);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw Error('Outside workspace');
+    return filename;
+  };
+  const file = path.join(root,'fixture.txt'); fs.writeFileSync(file,'hello');
+  return {...h, root, file};
+}
+
+test('upload accepts explicit files, canonicalizes links and audits counts without paths', async t => {
+  const h = uploadFixture(t);
+  const link = path.join(h.root,'alias.txt'); fs.symlinkSync(h.file, link);
+  let received;
+  h.backend._unguardedCallTool = async (tool, args) => {received=args;return {content:[]};};
+  const result = await h.guard.run(h.backend,'browser_file_upload',{paths:[h.file,link]});
+  assert.ok(!result.isError,JSON.stringify(result));
+  assert.deepEqual(received.paths,[h.file,h.file]);
+  const audit = h.events.at(-1);
+  assert.equal(audit.tool,'browser_file_upload'); assert.equal(audit.origin,'https://allowed.test');
+  assert.equal(audit.fileCount,2); assert.equal(audit.totalBytes,10);
+  assert.doesNotMatch(JSON.stringify(h.events),/fixture\.txt|alias\.txt|hello/);
+});
+
+test('upload rejects malformed, missing, non-regular and symlink-escaped files before execution', async t => {
+  const h = uploadFixture(t);
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'native-upload-outside-')));
+  t.after(() => fs.rmSync(outside,{recursive:true,force:true}));
+  const external = path.join(outside,'outside.txt'); fs.writeFileSync(external,'outside');
+  const link = path.join(h.root,'escape.txt'); fs.symlinkSync(external,link);
+  let writes = 0; h.backend._unguardedCallTool = async () => {writes++;return {content:[]};};
+  for (const paths of [null, 'file.txt', ['relative.txt'], [42], [h.root], [path.join(h.root,'missing')], [link]]) {
+    const result = await h.guard.run(h.backend,'browser_file_upload',{paths});
+    assert.equal(result.isError,true,JSON.stringify({paths,result}));
+  }
+  assert.equal(writes,0);
+});
+
+test('upload cancellation and an empty selection do not read any files', async t => {
+  const h = uploadFixture(t);
+  h.backend._context.workspaceFile = async () => {throw Error('Must not read files');};
+  assert.ok(!(await h.guard.run(h.backend,'browser_file_upload',{})).isError);
+  assert.ok(!(await h.guard.run(h.backend,'browser_file_upload',{paths:[]})).isError);
+  assert.equal(h.events.at(-1).fileCount,0);
+});
+
+test('upload rechecks policy at the file chooser and never replays uncertain writes', async t => {
+  for (const block of ['revoked','paused','operator']) {
+    const h = uploadFixture(t); let writes = 0;
+    const chooser = {setFiles:async () => {writes++;}};
+    h.page.emit('filechooser',chooser);
+    h.backend._unguardedCallTool = async (_tool,args) => {
+      if (block === 'revoked') h.policy.origins=[];
+      if (block === 'paused') h.policy.paused=true;
+      if (block === 'operator') h.policy.operator='another-worker';
+      await chooser.setFiles(args.paths); return {content:[]};
+    };
+    assert.equal((await h.guard.run(h.backend,'browser_file_upload',{paths:[h.file]})).isError,true);
+    assert.equal(writes,0);
+  }
+  const h = uploadFixture(t); let attempts = 0;
+  h.backend._unguardedCallTool = async () => {attempts++;throw Error('Connection lost after upload');};
+  assert.equal((await h.guard.run(h.backend,'browser_file_upload',{paths:[h.file]})).isError,true);
+  assert.equal(attempts,1); assert.equal(h.events.at(-1).outcome,'uncertain');
 });
 test('embedded content shares page approval; top-level navigation is not replayed',async()=>{
   const h=harness({origins:['https://allowed.test'],approve:false});
