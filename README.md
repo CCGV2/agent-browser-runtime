@@ -159,6 +159,30 @@ and verifies closing one session leaves the other usable.
 
 ## Human takeover
 
+Docker keyboard mapping uses XKB and leaves CapsLock/NumLock on the viewer so
+resolved letters and symbols do not depend on a second lock state in Xvfb.
+Startup/exit clears stale pressed keys and lock state. This is not a per-viewer
+disconnect reset: preview and control clients share one display. The image
+uses UTF-8 and includes CJK fonts.
+
+The Pax Console takeover text field composes text locally, then sends its exact
+UTF-8 content through paxd to a fixed container helper. The helper owns a temporary
+UTF-8 clipboard, checks the selected window and dispatches one paste, then drops
+clipboard ownership. It avoids Unicode-to-keycode conversion, dynamic X11 keymap
+limits and simulated input-method shortcuts. Line breaks/tabs remain text, not
+keyboard actions. The user must first select the intended remote input.
+
+Console, paxd and Docker runtime must be updated together. Docker changes require
+rebuilding/recreating the runtime with the installer. Reconnecting native Chrome
+MCP does not update Docker. paxd passes JSON on stdin to the helper under `flock`;
+it never puts text in argv or durable history. A delivery failure is not retried.
+
+`desktop-text.test.cjs` covers validation/privacy without desktop access.
+`docker-keyboard.test.cjs` is an opt-in smoke test for a dedicated fixture
+container; its header documents the test-only password and invocation. It checks
+actual Chromium text after RFB input and exact UTF-8 pastes, including first-use
+random Chinese characters. Never run it against a personal desktop.
+
 Docker mode launches its own Chromium workers directly, so it needs neither Chrome extension pairing nor an extension token. It does not currently use the native site's allowlist or audit service. Its separate browser state does not include your personal Chrome logins; once you sign into a site there, actions use that account's permissions. The VNC password below authenticates human desktop access and is unrelated to extension pairing.
 
 For a remote Linux host, create an SSH tunnel from the operator's computer:
