@@ -41,7 +41,10 @@ node /opt/agent-browser/desktop-config.cjs
 DISPLAY=:99 openbox-session >>/data/logs/openbox.log 2>&1 &
 WM_PID=$!
 
+# The viewer sends resolved characters. Keep lock-key state on the client;
+# a second CapsLock state in Xvfb can invert case and break shifted symbols.
 x11vnc -display :99 -forever -shared -noxdamage -repeat \
+  -xkb -skip_lockkeys -clear_all \
   -rfbport 5900 -listen 0.0.0.0 \
   -passwdfile /run/secrets/vnc_password \
   -o /data/logs/x11vnc.log &
