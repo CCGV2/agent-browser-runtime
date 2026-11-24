@@ -25,6 +25,7 @@ RUN apt-get update \
 WORKDIR /opt/agent-browser
 COPY package.json package-lock.json ./
 COPY browser-broker.cjs browser-client.cjs session-pool.cjs ./
+COPY recording.cjs worker-stop.cjs ./
 COPY docker-focus.cjs desktop-config.cjs desktop-text.cjs idle-monitor.cjs ./
 RUN npm ci --omit=dev \
     && npx playwright-core install --with-deps chromium \

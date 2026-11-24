@@ -1,7 +1,12 @@
 const net = require('node:net');
+const {parseRecording} = require('./recording.cjs');
+let recordVideo;
+try {recordVideo = parseRecording(process.env.AGENT_BROWSER_RECORD_VIDEO);} catch (error) {
+  console.error(error.message); process.exit(1);
+}
 const socket = net.connect(process.env.AGENT_BROWSER_SOCKET || '/tmp/agent-browser.sock');
 socket.on('error', error => { console.error(error.message); process.exitCode = 1; });
-socket.on('connect', () => socket.write(JSON.stringify({sessionKey: process.env.AGENT_BROWSER_SESSION_KEY || ''}) + '\n'));
+socket.on('connect', () => socket.write(JSON.stringify({sessionKey: process.env.AGENT_BROWSER_SESSION_KEY || '', recordVideo}) + '\n'));
 let handshake = Buffer.alloc(0);
 function attached(chunk) {
   handshake = Buffer.concat([handshake, chunk]);
@@ -14,6 +19,7 @@ function attached(chunk) {
     socket.destroy();
     return;
   }
+  if (response.recording) console.error('Browser video directory: ' + response.recording.directory);
   socket.removeListener('data', attached);
   if (end + 1 < handshake.length) process.stdout.write(handshake.subarray(end + 1));
   socket.pipe(process.stdout);

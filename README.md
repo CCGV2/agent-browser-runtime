@@ -135,14 +135,17 @@ The key is an opaque identifier for trusted local clients, not authentication.
 Do not set the same fixed key globally for unrelated Codex sessions.
 
 Only one active connection is allowed per key; a duplicate gets a clear attach
-error. After an idle disconnect, the worker and selected tab are retained for
-five minutes. Reconnecting with the same key retains cookies and pages. If a
-request was in flight, disconnect retires the worker instead: potentially
+error. Disconnecting a client retains its worker until five minutes pass with
+no browser tool operation and no visible pixel change in the current tab.
+Reconnecting with the same key while that worker is alive retains cookies and
+pages. This inactivity rule also retires a worker whose client is still connected.
+If a request was in flight, disconnect retires the worker instead: potentially
 completed clicks are never replayed. Broker restart loses in-memory sessions.
 `browser_close` affects only that session; later browser use starts fresh.
 Artifacts are placed in a SHA-256-keyed subdirectory and are not auto-deleted.
 
-The broker reads `AGENT_BROWSER_GRACE_MS` (default 300000) for retention and
+The worker reads `AGENT_BROWSER_IDLE_MS` (default `300000`) for inactivity and
+the broker reads
 `AGENT_BROWSER_SOCKET` (default `/tmp/agent-browser.sock`) for its internal
 socket. These are container settings, not public HTTP endpoints.
 
@@ -150,6 +153,54 @@ For Pax, use the optional local `~/.paxd/mcp.json` launch template documented in
 the paxd repository (`docs/local_session_mcp.md`), substituting
 `${PAX_SESSION_KEY}` into `AGENT_BROWSER_SESSION_KEY`. E2EE identity is injected
 on the node after decryption. No browser-specific manager logic is required.
+
+### Optional session video recording
+
+Docker video recording is off by default. Set `AGENT_BROWSER_RECORD_VIDEO=1`
+in the STDIO MCP process environment for a session that needs recording. The
+same MCP entry works with other harnesses and models; recording is a runtime
+option, independent of the model. For example, merge a server entry like this
+into your harness configuration, using your installed absolute path:
+
+```json
+{
+  "mcpServers": {
+    "agent-browser": {
+      "command": "/Users/YOUR_USER/.config/agent-browser/mcp-stdio.sh",
+      "args": [],
+      "env": {
+        "AGENT_BROWSER_RECORD_VIDEO": "1",
+        "AGENT_BROWSER_SESSION_KEY": "flight-search-run-001"
+      }
+    }
+  }
+}
+```
+
+Omit `AGENT_BROWSER_SESSION_KEY` for a new isolated session on every connection,
+or choose a different key for each independent run. Recording accepts exactly
+`1` or `true` to enable it; unset, empty, `0`, and `false` disable it. Other
+values are rejected. The option is fixed when the broker creates the worker,
+before the browser context is created. Reconnecting to a live session must use
+the same recording option; use a new key to change it. Recording cannot be
+enabled retroactively for an existing session.
+
+The broker creates the Playwright configuration and a unique video directory
+for each recorded worker under
+`/data/artifacts/<session-key SHA-256>/<worker directory>/videos`. The installed
+Docker volume maps `/data/artifacts` to `$AGENT_BROWSER_DATA_DIR/artifacts`
+on the host (by default, `~/.local/share/agent-browser/artifacts`). The client
+prints the container video directory to STDERR, and the `browser_close` tool
+response includes it. MCP JSON-RPC remains on STDOUT.
+
+Playwright records the 1440×900 viewport into one `.webm` file per page, so
+multiple tabs can produce multiple videos. Call `browser_close` and wait for
+its successful response before collecting completed files. A client disconnect
+can retain the context and leave recording in progress; the inactivity cleanup
+or graceful runtime shutdown also closes workers. Video files are not
+automatically deleted. This release requires rebuilding the Docker runtime
+with `./install.sh` and reconnecting MCP clients. The pinned MCP version does
+not offer the obsolete `--save-video` CLI flag; use the environment option above.
 
 Run `npm test` for broker and pool tests. To include real browser isolation
 tests, set `AGENT_BROWSER_REAL_MCP_CLI` to an installed `@playwright/mcp/cli.js`

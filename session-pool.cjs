@@ -4,11 +4,13 @@ class SessionPool {
     this.grace = grace;
     this.entries = new Map();
   }
-  attach(key) {
+  attach(key, options = {}) {
     let entry = this.entries.get(key);
     if (entry?.active) throw new Error('Session already connected');
+    if (entry && JSON.stringify(entry.options) !== JSON.stringify(options))
+      throw new Error('Session options differ; use a new session key to change recording');
     if (!entry) {
-      entry = {worker: this.create(key), active: false};
+      entry = {worker: this.create(key, options), options, active: false};
       this.entries.set(key, entry);
     }
     clearTimeout(entry.timer);
@@ -28,10 +30,10 @@ class SessionPool {
     if (!entry || entry.worker !== worker) return;
     this.entries.delete(key);
     clearTimeout(entry.timer);
-    worker.close();
+    return worker.close();
   }
   close() {
-    for (const [key, entry] of this.entries) this.remove(key, entry.worker);
+    return Promise.all([...this.entries].map(([key, entry]) => this.remove(key, entry.worker)));
   }
 }
 module.exports = {SessionPool};
