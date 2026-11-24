@@ -23,3 +23,12 @@ test('expired workers are closed and replaced', async () => {
   assert.notEqual(pool.attach('a'), first);
   pool.close();
 });
+
+test('worker-managed idle keeps detached sessions until explicit retirement', async () => {
+  let closed = 0;
+  const pool = new SessionPool(() => ({close() {closed++;}}), null);
+  const worker = pool.attach('observed'); pool.detach('observed', worker);
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(pool.attach('observed'), worker);
+  pool.remove('observed', worker); assert.equal(closed, 1);
+});
