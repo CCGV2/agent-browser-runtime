@@ -254,3 +254,20 @@ agents follow the latest operation, not a selected PAX session. The exact
 Playwright bundle is checked before installing the in-memory focus adapter.
 Rebuild/restart the Docker runtime and reconnect MCP to enable this behavior.
 Native Chrome uses its existing activity audit; paxd needs no update.
+
+### Browser inactivity cleanup
+
+Docker workers disconnect their client and retire the browser after five minutes
+with no browser tool operation and no change to the current tab's visible pixels,
+even while the MCP client remains connected. An operation in progress prevents
+expiry; completion and pixel changes restart the interval. The worker samples
+screenshots in memory every five seconds; samples are never saved or treated as agent
+operations. Background tabs are not observed. Animation and video count as page
+activity. Failed captures defer expiry rather than assuming the page is static.
+A disconnected client may reconnect while its worker remains alive; disconnecting
+alone no longer starts an unconditional five-minute cleanup timer. Pending RPCs
+at disconnect still retire the uncertain worker immediately.
+
+`AGENT_BROWSER_IDLE_MS` sets the interval (default `300000`, positive milliseconds).
+This replaces Docker's `AGENT_BROWSER_GRACE_MS` cleanup behavior. This setting does
+not enable video recording. Native browser cleanup is unchanged.

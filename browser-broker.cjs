@@ -9,8 +9,6 @@ const {SessionPool} = require('./session-pool.cjs');
 
 process.umask(0o077);
 const socketPath = process.env.AGENT_BROWSER_SOCKET || '/tmp/agent-browser.sock';
-const grace = Number(process.env.AGENT_BROWSER_GRACE_MS || 300000);
-if (!Number.isFinite(grace) || grace < 0) throw Error('Invalid grace period');
 const pool = new SessionPool(key => {
   const directory = path.join(process.env.AGENT_BROWSER_ARTIFACT_DIR || '/data/artifacts', createHash('sha256').update(key).digest('hex'));
   fs.mkdirSync(directory, {recursive: true});
@@ -21,9 +19,9 @@ const pool = new SessionPool(key => {
     '--timeout-navigation', '90000', '--viewport-size', '1440x900',
     ...(process.env.AGENT_BROWSER_HEADLESS === '1' ? ['--headless'] : []),
     ...(process.env.AGENT_BROWSER_EXECUTABLE_PATH ? ['--executable-path', process.env.AGENT_BROWSER_EXECUTABLE_PATH] : []),
-  ], {stdio: ['pipe', 'pipe', 'inherit']});
+  ], {stdio: ['pipe', 'pipe', 'inherit', 'ipc']});
   const worker = {
-    child, socket: null, initialized: null, initializeID: undefined,
+    child, socket: null, initialized: null, initializeID: undefined, activityGeneration: 0,
     pending: new Set(), workerRequests: new Set(), initializedNotification: false,
     close() { child.stdin.end(); child.kill('SIGTERM'); worker.socket?.destroy(); },
   };
@@ -41,11 +39,19 @@ const pool = new SessionPool(key => {
       worker.socket?.write(line + '\n');
     } catch { pool.remove(key, worker); }
   });
+  child.on('message', message => {
+    if (message?.type !== 'browser-idle') return;
+    if (message.generation !== worker.activityGeneration || worker.pending.size || worker.workerRequests.size) {
+      child.send({type: 'browser-activity', generation: worker.activityGeneration}, () => {});
+      return;
+    }
+    pool.remove(key, worker);
+  });
   child.on('exit', () => pool.remove(key, worker));
   child.on('error', () => pool.remove(key, worker));
   child.stdin.on('error', () => pool.remove(key, worker));
   return worker;
-}, grace);
+}, null);
 
 const server = net.createServer(socket => {
   let key, worker;
@@ -72,6 +78,10 @@ const server = net.createServer(socket => {
       if (message.method === 'notifications/initialized') {
         if (worker.initializedNotification) return;
         worker.initializedNotification = true;
+      }
+      if (message.method === 'tools/call') {
+        worker.activityGeneration++;
+        worker.child.send({type: 'browser-activity', generation: worker.activityGeneration}, () => {});
       }
       if (message.method && message.id !== undefined) worker.pending.add(JSON.stringify(message.id));
       if (!message.method && message.id !== undefined) worker.workerRequests.delete(JSON.stringify(message.id));

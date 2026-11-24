@@ -46,7 +46,8 @@ test('broker isolates workers, fences duplicate connections, retains idle state 
   await b.rpc('initialize'); b.notify('notifications/initialized');
   const state = (await a.rpc('increment', 2)).result;
   assert.equal(state.initialized, true);
-  assert.notEqual(state.pid, (await b.rpc('read', 2)).result.pid);
+  const bPID = (await b.rpc('read', 2)).result.pid;
+  assert.notEqual(state.pid, bPID);
   const duplicate = await attach('a'); assert.match(duplicate.attachment.error, /already connected/);
   a.socket.destroy(); await new Promise(r => setTimeout(r, 50));
   const resumed = await attach('a'); await resumed.rpc('initialize', 42);
@@ -71,6 +72,18 @@ test('broker isolates workers, fences duplicate connections, retains idle state 
   const adapterExit = once(adapter, 'exit');
   adapter.stdin.end();
   assert.equal((await adapterExit)[0], 0);
+  // Worker inactivity disconnects even a still-attached client.
+  await b.rpc('tools/call', 90, {name: 'fixture'});
+  b.notify('simulate-stale-idle');
+  await new Promise(r => setTimeout(r, 50));
+  assert.equal((await b.rpc('read', 91)).result.pid, bPID, 'stale idle decision must not kill a new operation');
+  const disconnected = once(b.socket, 'close');
+  b.notify('simulate-idle');
+  await disconnected;
+  const replacement = await attach('b');
+  await replacement.rpc('initialize');
+  assert.notEqual((await replacement.rpc('read', 2)).result.pid, bPID);
+
 });
 
 test('real Playwright sessions isolate pages and cookies and retain disconnected context', {
@@ -118,4 +131,50 @@ test('real Playwright sessions isolate pages and cookies and retain disconnected
   assert.match(await run(again, "async page => page.title()"), /Alpha/);
   await again.rpc('tools/call', id++, {name: 'browser_close', arguments: {}});
   assert.match(await run(b, "async page => page.title()"), /Beta/);
+});
+
+
+test('real Docker adapter disconnects only after both operations and pixels are idle', {
+  timeout: 45000, skip: !process.env.AGENT_BROWSER_REAL_MCP_CLI,
+}, async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-idle-real-'));
+  const socketPath = path.join(dir, 'broker.sock');
+  const child = spawn(process.execPath, [path.join(__dirname, 'browser-broker.cjs')], {env: {...process.env,
+    AGENT_BROWSER_SOCKET: socketPath, AGENT_BROWSER_ARTIFACT_DIR: dir,
+    AGENT_BROWSER_MCP_CLI: path.join(__dirname, 'docker-focus.cjs'),
+    AGENT_BROWSER_HEADLESS: '1', AGENT_BROWSER_IDLE_MS: '2000'}, stdio: ['ignore', 'ignore', 'inherit']});
+  let client;
+  t.after(async () => {
+    client?.socket.destroy();
+    const exited = once(child, 'exit'); child.kill(); await exited;
+    await fs.rm(dir, {recursive: true, force: true});
+  });
+  for (let i = 0; i < 100; i++) {
+    try {await fs.stat(socketPath); break;} catch {await new Promise(r => setTimeout(r, 20));}
+  }
+  client = await connect(socketPath, 'idle-real');
+  await client.rpc('initialize', 1, {protocolVersion: '2024-11-05', capabilities: {}, clientInfo: {name: 'idle-test', version: '1'}});
+  client.notify('notifications/initialized');
+  let id = 2;
+  const tools = (await client.rpc('tools/list', id++)).result.tools;
+  const runCode = tools.find(tool => /^browser_run_code/.test(tool.name));
+  assert.ok(runCode);
+  const run = async code => {
+    const response = await client.rpc('tools/call', id++, {name: runCode.name, arguments: {code}});
+    assert.ok(response.result && !response.result.isError, JSON.stringify(response));
+  };
+  // A long operation must stay alive past the timeout.
+  await run("async page => {await page.setContent('<body>static</body>'); await page.waitForTimeout(2500);}");
+  assert.equal(client.socket.destroyed, false);
+  // Changing pixels keep a still-connected worker alive without more tool calls.
+  await run("async page => {await page.evaluate(() => {let n=0; window.change=setInterval(()=>{document.body.innerHTML = '<h1>' + n++ + '</h1>';}, 150);});}");
+  await new Promise(r => setTimeout(r, 3500));
+  assert.equal(client.socket.destroyed, false);
+  // Once pixels stop changing, the connected client is retired.
+  await run("async page => {await page.evaluate(() => clearInterval(window.change));}");
+  await Promise.race([
+    once(client.socket, 'close'),
+    new Promise((_, reject) => {const timer = setTimeout(() => reject(Error('Static worker not retired')), 8000); timer.unref();}),
+  ]);
+  assert.equal(client.socket.destroyed, true);
 });

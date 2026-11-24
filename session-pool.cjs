@@ -19,6 +19,7 @@ class SessionPool {
     const entry = this.entries.get(key);
     if (!entry || entry.worker !== worker) return;
     entry.active = false;
+    if (this.grace === null) return; // Worker observes operations and page pixels.
     entry.timer = setTimeout(() => this.remove(key, worker), this.grace);
     entry.timer.unref();
   }
