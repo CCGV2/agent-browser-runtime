@@ -11,7 +11,12 @@ fi
 
 cleanup() {
   trap - TERM INT EXIT
-  for pid in "${BROKER_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${WM_PID:-}" "${XVFB_PID:-}"; do
+  # Keep the display available until browser workers finish video output.
+  if [ -n "${BROKER_PID:-}" ]; then
+    kill "$BROKER_PID" 2>/dev/null || true
+    wait "$BROKER_PID" 2>/dev/null || true
+  fi
+  for pid in "${NOVNC_PID:-}" "${VNC_PID:-}" "${WM_PID:-}" "${XVFB_PID:-}"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true
     fi

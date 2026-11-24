@@ -9,6 +9,7 @@ services:
     container_name: agent-browser
     init: true
     restart: unless-stopped
+    stop_grace_period: 30s
     user: "${AGENT_BROWSER_UID:-1000}:${AGENT_BROWSER_GID:-1000}"
     environment:
       DISPLAY: ":99"

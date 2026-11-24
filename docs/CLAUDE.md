@@ -37,6 +37,37 @@ claude mcp add --scope user agent-browser -- "$HOME/.config/agent-browser/mcp-st
 
 Run `claude mcp get agent-browser`, then restart Claude Code. Open `http://127.0.0.1:6080/vnc.html` for local human takeover.
 
+For a run that needs video, register the Docker MCP process with
+`AGENT_BROWSER_RECORD_VIDEO=1` in its environment. Recording is off by default
+and does not depend on which Claude model is selected. For Claude Desktop or
+another harness that accepts JSON MCP configuration, the Docker entry is:
+
+```json
+{
+  "command": "/Users/YOUR_USER/.config/agent-browser/mcp-stdio.sh",
+  "args": [],
+  "env": {
+    "AGENT_BROWSER_RECORD_VIDEO": "1",
+    "AGENT_BROWSER_SESSION_KEY": "recorded-run-001"
+  }
+}
+```
+
+Use a new session key for each independent run, or omit it to create a new
+session on connection. A reconnect to a live key must use the same recording
+option. Accepted values are `1`/`true` (on) and unset/empty/`0`/`false` (off),
+with exact case; other values fail. This is chosen when the worker is created,
+not on an individual click or after browsing has started.
+
+Call `browser_close` and wait for success to finalize the per-page `.webm`
+files. Disconnecting MCP alone may leave recording in progress. The client
+prints the container video directory to STDERR, and `browser_close` includes
+it in its response. Find that directory below the host artifact mount, normally
+`~/.local/share/agent-browser/artifacts`; files are not auto-deleted. Rebuild the
+runtime with the updated installer before using this option. See
+[session recording](../README.md#optional-session-video-recording) for paths
+and lifecycle details; do not pass the obsolete `--save-video` CLI flag.
+
 ### Claude Code tool policy
 
 Add these entries to the `deny` list under `permissions` in `~/.claude/settings.json` or the applicable managed/project settings file:
